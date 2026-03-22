@@ -26,10 +26,18 @@ def load_config() -> dict:
     path = get_config_path()
     if not path.exists():
         raise click.ClickException(
-            f"Config not found. Run 'tracecraft init' in this directory first."
+            "Config not found. Run 'tracecraft init' in this directory first."
         )
     with open(path) as f:
-        return json.load(f)
+        cfg = json.load(f)
+
+    # TRACECRAFT_AGENT env var overrides config file agent_id.
+    # This lets multiple agents share the same directory/config.
+    agent_override = os.environ.get("TRACECRAFT_AGENT")
+    if agent_override:
+        cfg["agent_id"] = agent_override
+
+    return cfg
 
 
 def save_config(data: dict, local: bool = True) -> None:
