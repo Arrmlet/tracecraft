@@ -3,10 +3,10 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tracecraft"
+name = "tracecraft-ai"
 version = "0.1.0"
 description = "Coordination layer for multi-agent AI systems. Shared memory, experiment tracking, and session replay."
-readme = "../README.md"
+readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 keywords = ["agents", "multi-agent", "experiment-tracking", "coordination", "observability"]
@@ -27,6 +27,7 @@ dependencies = [
     "click>=8.1.0",
     "httpx>=0.25.0",
     "pydantic>=2.5.0",
+    "boto3>=1.28.0",
 ]
 
 [project.optional-dependencies]
@@ -40,7 +41,7 @@ dev = [
 crewai = ["crewai>=1.10,<2.0"]
 langgraph = ["langgraph>=0.3,<1.0"]
 claude-sdk = ["claude-agent-sdk>=0.1,<1.0"]
-all = ["tracecraft[crewai,langgraph,claude-sdk]"]
+all = ["tracecraft-ai[crewai,langgraph,claude-sdk]"]
 
 [project.scripts]
 tracecraft = "tracecraft.cli:main"
