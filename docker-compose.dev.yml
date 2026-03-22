@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: tracecraft
+      POSTGRES_USER: tracecraft
+      POSTGRES_PASSWORD: tracecraft
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  seaweed-master:
+    image: chrislusf/seaweedfs
+    command: master -ip=seaweed-master -port=9333
+    ports:
+      - "9333:9333"
+
+  seaweed-volume:
+    image: chrislusf/seaweedfs
+    command: volume -mserver=seaweed-master:9333 -port=8080 -ip=seaweed-volume
+    ports:
+      - "8080:8080"
+    depends_on:
+      - seaweed-master
+
+  seaweed-filer:
+    image: chrislusf/seaweedfs
+    command: filer -master=seaweed-master:9333 -port=8888 -s3 -s3.port=8333
+    ports:
+      - "8888:8888"
+      - "8333:8333"
+    depends_on:
+      - seaweed-master
+      - seaweed-volume
+
+volumes:
+  postgres_data:

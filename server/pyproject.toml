@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracecraft-server"
+version = "0.1.0"
+description = "Coordination layer for multi-agent AI systems"
+requires-python = ">=3.10"
+
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "boto3>=1.34.0",
+    "pydantic>=2.5.0",
+    "python-jose[cryptography]>=3.3.0",
+    "pyyaml>=6.0.1",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.25.0",
+    "redis>=5.0.0",
+]
+
+[project.scripts]
+tracecraft-server = "tracecraft_server.main:main"
+
+[tool.setuptools.packages.find]
+include = ["tracecraft_server*"]
