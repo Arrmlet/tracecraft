@@ -3,7 +3,7 @@
 **Coordination layer for multi-agent AI systems.** Shared memory, experiment tracking, and session replay.
 
 ```bash
-pip install tracecraft
+pip install tracecraft-ai
 ```
 
 ---
@@ -57,16 +57,31 @@ Tracecraft is the production infrastructure for both use cases.
 ### 1. Install
 
 ```bash
-pip install tracecraft
+pip install tracecraft-ai
 ```
 
-### 2. Start the server
+### 2. Initialize (point to any S3)
 
 ```bash
-tracecraft serve
+# Local MinIO
+tracecraft init --project myproject --agent agent-1 \
+  --endpoint http://localhost:9000 --bucket tracecraft \
+  --access-key admin --secret-key admin123456
+
+# Or AWS S3
+tracecraft init --project myproject --agent agent-1 \
+  --endpoint https://s3.amazonaws.com --bucket my-tracecraft
+
+# Or Cloudflare R2, SeaweedFS, any S3-compatible storage
 ```
 
-This starts PostgreSQL + SeaweedFS + the tracecraft server locally via Docker.
+Config is saved per directory (`.tracecraft.json`). Each folder/worktree gets its own agent identity.
+
+For multiple agents in the same directory, use the env var:
+```bash
+TRACECRAFT_AGENT=designer tracecraft inbox
+TRACECRAFT_AGENT=developer tracecraft inbox
+```
 
 ### 3. Use from any agent
 
@@ -74,26 +89,9 @@ This starts PostgreSQL + SeaweedFS + the tracecraft server locally via Docker.
 # From a Claude Code session, a Python script, a bash script — anything
 tracecraft memory set research.findings '{"papers": 47, "relevant": 12}'
 tracecraft send agent-writer "Research phase complete, 12 relevant papers found"
-tracecraft run log-metric quality_score 0.92
-```
-
-### 4. Or use the Python SDK
-
-```python
-import tracecraft
-
-tracecraft.init(project="my-research")
-
-with tracecraft.run("prompt-comparison-v2") as run:
-    with run.agent(name="researcher", model="claude-sonnet-4-20250514") as agent:
-        with agent.step("search", kind="tool_call") as step:
-            step.log_input({"query": "multi-agent coordination"})
-            step.log_output(results)
-
-        agent.shared_memory.set("findings", {"papers": 47})
-        agent.send("writer", "Research complete")
-
-    run.log_metrics({"quality_score": 0.92, "cost": 0.034})
+tracecraft claim research
+tracecraft complete research --note "Found 12 relevant papers"
+tracecraft artifact upload results.json --step research
 ```
 
 ---
@@ -126,17 +124,19 @@ result = app.invoke(input, config={"callbacks": [TracecraftTracer()]})
 ```
 Agents (Claude Code, Codex, CrewAI, scripts, anything)
     |
-    |  tracecraft CLI  or  Python SDK
+    |  tracecraft CLI (or shell out from any language)
     |
     v
-Tracecraft Server (FastAPI)
+Any S3-compatible storage
     |
-    +--- PostgreSQL (metadata, coordination state, experiment tracking)
-    +--- SeaweedFS (artifacts, memory snapshots, replay files)
-    +--- Redis (pub/sub, real-time notifications, locks)
+    +--- MinIO (local dev)
+    +--- SeaweedFS (local dev)
+    +--- AWS S3 (production)
+    +--- Cloudflare R2 (free tier)
+    +--- Backblaze B2, etc.
 ```
 
-Everything self-hosted. No cloud dependency. One `docker compose up` to start.
+No servers. No databases. Just S3 objects. Agents coordinate by reading and writing JSON files to shared S3 prefixes.
 
 ---
 

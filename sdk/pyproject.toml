@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracecraft-ai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Coordination layer for multi-agent AI systems. Shared memory, experiment tracking, and session replay."
 readme = "README.md"
 license = {text = "MIT"}
