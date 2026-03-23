@@ -4,14 +4,14 @@ from datetime import datetime, timezone
 
 import click
 
-from tracecraft.s3 import S3
+from tracecraft.store import get_store
 
 
 @click.command()
 def agents():
     """List all registered agents and their status."""
-    s3 = S3.from_config()
-    keys = s3.list_keys("agents/")
+    store, _ = get_store()
+    keys = store.list_keys("agents/")
 
     if not keys:
         click.echo("No agents found.")
@@ -24,7 +24,7 @@ def agents():
     for key in keys:
         if not key.endswith(".json"):
             continue
-        data = s3.get_json(key)
+        data = store.get_json(key)
         if data is None:
             continue
 

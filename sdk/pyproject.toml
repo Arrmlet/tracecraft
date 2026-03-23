@@ -38,6 +38,7 @@ dev = [
     "ruff>=0.4.0",
     "mypy>=1.0.0",
 ]
+huggingface = ["huggingface_hub>=1.5.0"]
 crewai = ["crewai>=1.10,<2.0"]
 langgraph = ["langgraph>=0.3,<1.0"]
 claude-sdk = ["claude-agent-sdk>=0.1,<1.0"]
