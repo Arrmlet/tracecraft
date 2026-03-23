@@ -25,16 +25,6 @@ Works with Claude Code, Codex, CrewAI, LangGraph, Hermes Agent, autoresearch, or
 
 ---
 
-## Why
-
-Andrej Karpathy ran [700 experiments in 2 days](https://x.com/karpathy/status/2030371219518931079) with autoresearch. Then his labs [got wiped out in an outage](https://x.com/karpathy/status/2031792523187040643). No persistence, no replay, no failover.
-
-He said the next step is ["asynchronously massively collaborative agents"](https://x.com/karpathy/status/2030705271627284816) — 7,500 people agreed.
-
-[claude-peers](https://github.com/louislva/claude-peers-mcp) proved 400K people want agent coordination. But it's ephemeral messaging only — no shared memory, no persistence, no experiment tracking.
-
-Tracecraft is the production infrastructure for both use cases.
-
 ---
 
 ## What it does
