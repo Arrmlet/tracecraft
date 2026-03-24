@@ -27,3 +27,4 @@ htmlcov/
 .ruff_cache/
 node_modules/
 sdk/.tracecraft.json
+plans/LAUNCH_PLAYBOOK.md
