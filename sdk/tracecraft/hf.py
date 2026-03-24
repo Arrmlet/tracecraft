@@ -92,11 +92,6 @@ class HF:
             raise click.ClickException(f"HF download failed: {e}")
 
     def ensure_bucket(self):
-        # HF buckets are created via CLI or web — just check it exists
-        try:
-            self.fs.ls(self.base)
-        except FileNotFoundError:
-            raise click.ClickException(
-                f"Bucket '{self.bucket}' not found on HuggingFace. "
-                f"Create it first: hf buckets create {self.bucket.split('/')[-1]}"
-            )
+        # HF buckets are created via CLI or web — verify by checking exists or listing
+        # Empty buckets fail on ls(), so we just pass and let first write validate access
+        pass
