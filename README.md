@@ -1,6 +1,9 @@
 # tracecraft
 
-Coordination layer for multi-agent AI systems.
+[![PyPI](https://img.shields.io/pypi/v/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
+Coordination layer for multi-agent AI systems. Shared memory, messaging, and task coordination — all stored as JSON in any S3 bucket.
 
 ```
   Terminal 1 (designer)              Terminal 2 (developer)
