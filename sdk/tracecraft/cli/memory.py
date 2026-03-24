@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 
 import click
 
-from tracecraft.config import load_config
-from tracecraft.s3 import S3
+from tracecraft.store import get_store
 
 
 @click.group()
@@ -30,10 +29,11 @@ def _path_to_key(path):
 @click.argument("value")
 def memory_set(key, value):
     """Set a memory key. Dots become path separators."""
-    cfg = load_config()
-    s3 = S3.from_config()
+    if not key.strip():
+        raise click.ClickException("Key cannot be empty")
+    store, cfg = get_store()
     now = datetime.now(timezone.utc).isoformat()
-    s3.put_json(_key_to_path(key), {
+    store.put_json(_key_to_path(key), {
         "value": value,
         "set_by": cfg["agent_id"],
         "set_at": now,
@@ -44,11 +44,12 @@ def memory_set(key, value):
 @memory.command("get")
 @click.argument("key")
 def memory_get(key):
-    """Get a memory value by key."""
-    s3 = S3.from_config()
-    data = s3.get_json(_key_to_path(key))
+    """Get a memory value by key. Exits with code 1 if not found."""
+    store, _ = get_store()
+    data = store.get_json(_key_to_path(key))
     if data is None:
-        raise click.ClickException(f"Key '{key}' not found")
+        click.echo("", err=True)
+        raise SystemExit(1)
     click.echo(data["value"])
 
 
@@ -56,11 +57,11 @@ def memory_get(key):
 @click.argument("prefix", default="")
 def memory_list(prefix):
     """List memory keys, optionally filtered by prefix."""
-    s3 = S3.from_config()
+    store, _ = get_store()
     s3_prefix = "memory/"
     if prefix:
         s3_prefix += prefix.replace(".", "/")
-    keys = s3.list_keys(s3_prefix)
+    keys = store.list_keys(s3_prefix)
     for k in keys:
         dot_key = _path_to_key(k)
         click.echo(dot_key)

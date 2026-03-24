@@ -1,6 +1,6 @@
 # tracecraft
 
-**Coordination layer for multi-agent AI systems.** Shared memory, experiment tracking, and session replay.
+**Coordination layer for multi-agent AI systems.** Shared memory, messaging, and task coordination.
 
 ```bash
 pip install tracecraft-ai
@@ -8,22 +8,20 @@ pip install tracecraft-ai
 
 ---
 
-When you run 10 AI agents in parallel, they need to coordinate. They need to share results, claim tasks, wait for each other, and pass context forward. Today, that infrastructure doesn't exist. Tracecraft is it.
+When you run multiple AI agents in parallel, they need to coordinate — share results, claim tasks, wait for each other, pass context forward. Tracecraft is a CLI that does this through any S3-compatible storage.
 
 ```bash
-# Agent A finishes a step and shares the result
+# Agent A finishes a step
 tracecraft memory set s1a.status "complete"
 tracecraft complete S1.A --note "SDK core built. Watch out for race in queue.py"
 
-# Agent B reads it and starts its work
+# Agent B picks it up
 tracecraft wait-for S1.A
 tracecraft memory get s1a.status
 tracecraft claim S1.B
 ```
 
-Works with Claude Code, Codex, CrewAI, LangGraph, Hermes Agent, autoresearch, or any process that can call a CLI.
-
----
+Works with any agent that can run a shell command — Claude Code, OpenClaw, Hermes Agent, Codex, custom scripts, anything.
 
 ---
 
@@ -33,11 +31,10 @@ Works with Claude Code, Codex, CrewAI, LangGraph, Hermes Agent, autoresearch, or
 |-----------|---------|-------------|
 | **Shared memory** | `tracecraft memory set key value` | Agents read/write persistent key-value state |
 | **Messaging** | `tracecraft send agent-b "done"` | Direct or broadcast messages between agents |
-| **Task claiming** | `tracecraft claim S1.A` | Atomic step claiming so agents don't collide |
+| **Task claiming** | `tracecraft claim S1.A` | Claim a step so agents don't collide |
 | **Barriers** | `tracecraft wait-for S1.A S1.B` | Block until dependencies complete |
 | **Handoffs** | `tracecraft complete S1.A --note "..."` | Structured context for the next agent |
-| **Experiment tracking** | `tracecraft run start "exp-v2"` | Track runs, metrics, artifacts, cost |
-| **Session replay** | `tracecraft replay <run-id>` | Step-by-step replay of any past run |
+| **Artifacts** | `tracecraft artifact upload file.pdf --step s1a` | Share files between agents |
 | **Agent registry** | `tracecraft agents` | See who's online and what they're working on |
 
 ---
@@ -50,7 +47,7 @@ Works with Claude Code, Codex, CrewAI, LangGraph, Hermes Agent, autoresearch, or
 pip install tracecraft-ai
 ```
 
-### 2. Initialize (point to any S3)
+### 2. Point to any S3
 
 ```bash
 # Local MinIO
@@ -58,214 +55,107 @@ tracecraft init --project myproject --agent agent-1 \
   --endpoint http://localhost:9000 --bucket tracecraft \
   --access-key admin --secret-key admin123456
 
-# Or AWS S3
+# AWS S3
 tracecraft init --project myproject --agent agent-1 \
   --endpoint https://s3.amazonaws.com --bucket my-tracecraft
 
-# Or Cloudflare R2, SeaweedFS, any S3-compatible storage
+# Cloudflare R2, SeaweedFS, any S3-compatible storage — same interface
+
+# HuggingFace Buckets
+tracecraft init --backend hf --bucket username/my-bucket \
+  --project myproject --agent agent-1
 ```
 
-Config is saved per directory (`.tracecraft.json`). Each folder/worktree gets its own agent identity.
-
-For multiple agents in the same directory, use the env var:
-```bash
-TRACECRAFT_AGENT=designer tracecraft inbox
-TRACECRAFT_AGENT=developer tracecraft inbox
-```
-
-### 3. Use from any agent
+### 3. Coordinate
 
 ```bash
-# From a Claude Code session, a Python script, a bash script — anything
-tracecraft memory set research.findings '{"papers": 47, "relevant": 12}'
-tracecraft send agent-writer "Research phase complete, 12 relevant papers found"
+tracecraft memory set research.findings '{"papers": 47}'
+tracecraft send agent-writer "Research complete"
 tracecraft claim research
 tracecraft complete research --note "Found 12 relevant papers"
 tracecraft artifact upload results.json --step research
 ```
 
----
-
-## Integrations
-
-Tracecraft works with any agent framework. One-line integrations for the major ones:
-
-```python
-# CrewAI
-from tracecraft.integrations.crewai import TracecraftCallback
-crew = Crew(agents=[...], callbacks=[TracecraftCallback()])
-
-# Claude Agent SDK
-from tracecraft.integrations.claude_sdk import tracecraft_hooks
-agent = Agent(model="claude-sonnet-4-20250514", hooks=tracecraft_hooks())
-
-# LangGraph
-from tracecraft.integrations.langgraph import TracecraftTracer
-result = app.invoke(input, config={"callbacks": [TracecraftTracer()]})
-
-# Hermes Agent — coming soon
-# AutoGen — coming soon
+For multiple agents in the same directory:
+```bash
+TRACECRAFT_AGENT=designer tracecraft inbox
+TRACECRAFT_AGENT=developer tracecraft inbox
 ```
 
 ---
 
-## Architecture
+## Storage backends
 
-```
-Agents (Claude Code, Codex, CrewAI, scripts, anything)
-    |
-    |  tracecraft CLI (or shell out from any language)
-    |
-    v
-Any S3-compatible storage
-    |
-    +--- MinIO (local dev)
-    +--- SeaweedFS (local dev)
-    +--- AWS S3 (production)
-    +--- Cloudflare R2 (free tier)
-    +--- Backblaze B2, etc.
-```
+Tracecraft stores everything as JSON files in S3. No servers, no databases. Bring your own storage:
 
-No servers. No databases. Just S3 objects. Agents coordinate by reading and writing JSON files to shared S3 prefixes.
+| Backend | Setup |
+|---------|-------|
+| **MinIO** | `docker run -p 9000:9000 minio/minio server /data` |
+| **SeaweedFS** | `docker run -p 8333:8333 chrislusf/seaweedfs server -s3` |
+| **AWS S3** | Create a bucket, pass credentials |
+| **Cloudflare R2** | Free tier, S3-compatible |
+| **HuggingFace Buckets** | `pip install tracecraft-ai[huggingface]` |
 
 ---
 
 ## CLI reference
 
 ```bash
-# Server
-tracecraft serve                          # Start local server
-tracecraft status                         # Check connection
+# Setup
+tracecraft init                           # Configure S3 + project + agent
+tracecraft agents                         # Who's online?
 
 # Shared memory
-tracecraft memory set <key> <value>       # Write (JSON or string)
+tracecraft memory set <key> <value>       # Write (dots become path separators)
 tracecraft memory get <key>               # Read
-tracecraft memory list [--prefix X]       # List keys
-tracecraft memory watch <pattern>         # Stream changes in real-time
+tracecraft memory list [prefix]           # List keys
 
 # Messaging
 tracecraft send <agent-id> <message>      # Direct message
-tracecraft broadcast <message>            # Message all agents
-tracecraft inbox                          # Check messages
-tracecraft inbox --watch                  # Stream incoming messages
+tracecraft send _broadcast <message>      # Broadcast to all
+tracecraft inbox                          # Read messages
+tracecraft inbox --delete                 # Read and clear
 
-# Coordination
-tracecraft claim <step-id>                # Claim a task (atomic)
-tracecraft complete <step-id> [--note X]  # Mark done + handoff note
-tracecraft wait-for <step-ids...>         # Block until all complete
+# Task coordination
+tracecraft claim <step-id>                # Claim a step
+tracecraft complete <step-id> [--note X]  # Mark done + handoff
+tracecraft step-status <step-id>          # Check status
+tracecraft wait-for <step-ids...>         # Block until complete
 
-# Experiment tracking
-tracecraft run start <name>               # Start a tracked run
-tracecraft run log-metric <name> <value>  # Log a metric
-tracecraft run log-artifact <name> <path> # Upload an artifact
-tracecraft run end [--status X]           # End the run
-
-# Inspection
-tracecraft agents                         # Who's online?
-tracecraft runs                           # List all runs
-tracecraft runs inspect <id>              # Step-by-step timeline
-tracecraft replay <id>                    # Replay a past run
+# Artifacts
+tracecraft artifact upload <path> [--step id]   # Share a file
+tracecraft artifact download <name> [--step id] # Get a file
+tracecraft artifact list [--step id]             # List files
 ```
 
 ---
 
-## Use cases
-
-### Parallel Claude Code sessions
-Run 4 Claude Code agents in git worktrees, each building a different module. They claim steps, share artifacts, wait at barriers, and hand off context — all through tracecraft.
-
-### Karpathy-style autoresearch
-Run hundreds of experiments overnight. Every run is tracked with metrics, artifacts, and cost. Replay any run to understand what the agent tried. Compare runs to find what worked.
-
-### CrewAI/LangGraph production monitoring
-Track every agent decision, tool call, and handoff in production multi-agent workflows. Debug failures with session replay. Attribute costs to specific agents.
-
-### Benchmarking multi-agent systems
-Compare different agent configurations (3 agents vs 5 agents, GPT vs Claude, different prompts) with controlled experiment tracking and standardized metrics.
-
----
-
-## How it compares
-
-| | tracecraft | Langfuse | LangSmith | claude-peers | AgentOps |
-|---|---|---|---|---|---|
-| Open source | MIT | MIT (ClickHouse) | No | MIT | Partial |
-| Shared memory | Yes | No | No | No | No |
-| Agent coordination | Yes | No | No | Messaging only | No |
-| Experiment tracking | Yes | Tracing only | Tracing only | No | Monitoring |
-| Session replay | Yes | Trace waterfall | Trace waterfall | No | No |
-| Artifact storage | Yes (SeaweedFS) | No | No | No | No |
-| CLI-first | Yes | No | No | No | No |
-| Self-hosted | Yes | Yes | Enterprise only | Localhost | No |
-| Works with any framework | Yes | Yes | LangChain-centric | Claude Code only | Yes |
-
----
-
-## Project structure
+## How it works
 
 ```
-tracecraft/
-  sdk/
-    tracecraft/              Python SDK + CLI
-      cli/                   CLI commands (click)
-      integrations/          CrewAI, Claude SDK, LangGraph adapters
-      transport/             Batching, retry, offline buffer
-  server/
-    tracecraft_server/       FastAPI server
-      api/v1/                REST endpoints
-      core/                  Config, auth, database
-      storage/               SeaweedFS + artifact management
-      services/              Shared memory, mailbox, coordination, registry
-      models/                SQLAlchemy models
-      ws/                    WebSocket handlers
-  dashboard/                 Web UI (Phase 3)
-  examples/                  Integration examples
-  benchmarks/                MAExBench benchmark suite
-  plans/                     Construction blueprints for contributors
-  docs/                      Documentation
+Any agent (Claude Code, OpenClaw, Hermes, scripts)
+    |
+    |  tracecraft CLI
+    |
+    v
+Any S3-compatible storage
+    |
+    +--- s3://bucket/project/memory/    → shared key-value state
+    +--- s3://bucket/project/messages/  → agent inboxes
+    +--- s3://bucket/project/steps/     → claims, status, handoffs
+    +--- s3://bucket/project/agents/    → who's alive
+    +--- s3://bucket/project/artifacts/ → shared files
 ```
 
----
-
-## Roadmap
-
-- [x] Architecture design and blueprints
-- [ ] Core SDK (init, run, agent, step)
-- [ ] Server (PostgreSQL + SeaweedFS + Redis)
-- [ ] Shared memory + messaging + coordination primitives
-- [ ] CLI tool
-- [ ] CrewAI integration
-- [ ] Claude Agent SDK integration
-- [ ] LangGraph integration
-- [ ] Dashboard with session replay
-- [ ] MAExBench (multi-agent experiment benchmark)
-- [ ] arXiv paper
+All coordination state is JSON files in S3. Any agent that can call `tracecraft` can participate.
 
 ---
 
-## Contributing
+## Tested with
 
-Tracecraft is built for parallel development. The `plans/` directory contains detailed construction blueprints where each step is self-contained — a fresh contributor (human or AI) can pick up any step and execute it independently.
-
-```bash
-git clone https://github.com/Arrmlet/tracecraft
-cd tracecraft
-cat plans/tracecraft-blueprint-v2.md    # Read the blueprint
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
-
----
-
-## Research
-
-Tracecraft is also a research instrument. We're working toward:
-
-- **arXiv preprint**: "Tracecraft: Shared Memory and Coordination Primitives for Multi-Agent LLM Systems"
-- **MAExBench**: A standardized benchmark for evaluating multi-agent coordination, cost efficiency, and reliability
-- **NeurIPS/ICLR submission**: Empirical findings from real-world multi-agent experiment data
-
-If you're a researcher interested in multi-agent systems, we'd love to collaborate. Open an issue or reach out.
+- Claude Code (multiple instances in worktrees)
+- HuggingFace Buckets ([live demo](https://huggingface.co/buckets/arrmlet/tracecraft-test))
+- MinIO (local dev)
 
 ---
 

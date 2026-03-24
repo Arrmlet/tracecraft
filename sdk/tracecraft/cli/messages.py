@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 
 import click
 
-from tracecraft.config import load_config
-from tracecraft.s3 import S3
+from tracecraft.store import get_store
 
 
 @click.command()
@@ -14,14 +13,15 @@ from tracecraft.s3 import S3
 @click.argument("message")
 def send(recipient, message):
     """Send a message to another agent (or '_broadcast' for all)."""
-    cfg = load_config()
-    s3 = S3.from_config()
+    if not recipient.strip():
+        raise click.ClickException("Recipient cannot be empty")
+    store, cfg = get_store()
     sender = cfg["agent_id"]
     ts = int(time.time())
     now = datetime.now(timezone.utc).isoformat()
 
     key = f"messages/{recipient}/{ts}_{sender}.json"
-    s3.put_json(key, {
+    store.put_json(key, {
         "from": sender,
         "to": recipient,
         "message": message,
@@ -34,30 +34,36 @@ def send(recipient, message):
 @click.option("--delete", is_flag=True, help="Delete messages after reading")
 def inbox(delete):
     """Read messages in your inbox and broadcasts."""
-    cfg = load_config()
-    s3 = S3.from_config()
+    store, cfg = get_store()
     my_id = cfg["agent_id"]
 
-    direct_keys = s3.list_keys(f"messages/{my_id}/")
-    broadcast_keys = s3.list_keys("messages/_broadcast/")
+    direct_keys = store.list_keys(f"messages/{my_id}/")
+    broadcast_keys = store.list_keys("messages/_broadcast/")
     all_keys = direct_keys + broadcast_keys
 
     if not all_keys:
         click.echo("No messages.")
         return
 
+    count = 0
     for key in all_keys:
-        data = s3.get_json(key)
+        data = store.get_json(key)
         if data is None:
             continue
         sender = data.get("from", "?")
+        # Skip own broadcasts
+        if "_broadcast/" in key and sender == my_id:
+            continue
         msg = data.get("message", "")
         sent_at = data.get("sent_at", "?")
         target = "broadcast" if "_broadcast/" in key else "direct"
         click.echo(f"[{sent_at}] ({target}) {sender}: {msg}")
+        count += 1
 
         if delete:
-            s3.delete(key)
+            store.delete(key)
 
-    if delete:
-        click.echo(f"Deleted {len(all_keys)} message(s).")
+    if count == 0:
+        click.echo("No messages.")
+    elif delete:
+        click.echo(f"Deleted {count} message(s).")
