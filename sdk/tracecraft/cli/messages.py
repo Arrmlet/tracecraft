@@ -13,6 +13,8 @@ from tracecraft.store import get_store
 @click.argument("message")
 def send(recipient, message):
     """Send a message to another agent (or '_broadcast' for all)."""
+    if not recipient.strip():
+        raise click.ClickException("Recipient cannot be empty")
     store, cfg = get_store()
     sender = cfg["agent_id"]
     ts = int(time.time())
@@ -43,18 +45,25 @@ def inbox(delete):
         click.echo("No messages.")
         return
 
+    count = 0
     for key in all_keys:
         data = store.get_json(key)
         if data is None:
             continue
         sender = data.get("from", "?")
+        # Skip own broadcasts
+        if "_broadcast/" in key and sender == my_id:
+            continue
         msg = data.get("message", "")
         sent_at = data.get("sent_at", "?")
         target = "broadcast" if "_broadcast/" in key else "direct"
         click.echo(f"[{sent_at}] ({target}) {sender}: {msg}")
+        count += 1
 
         if delete:
             store.delete(key)
 
-    if delete:
-        click.echo(f"Deleted {len(all_keys)} message(s).")
+    if count == 0:
+        click.echo("No messages.")
+    elif delete:
+        click.echo(f"Deleted {count} message(s).")

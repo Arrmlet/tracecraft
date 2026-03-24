@@ -44,6 +44,8 @@ def artifact_download(name, step, output):
         key = f"artifacts/shared/{name}"
 
     dest = output or name
+    if not store.exists(key):
+        raise click.ClickException(f"Artifact not found: {key}")
     store.get_file(key, dest)
     click.echo(f"Downloaded {key} -> {dest}")
 

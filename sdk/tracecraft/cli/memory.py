@@ -29,6 +29,8 @@ def _path_to_key(path):
 @click.argument("value")
 def memory_set(key, value):
     """Set a memory key. Dots become path separators."""
+    if not key.strip():
+        raise click.ClickException("Key cannot be empty")
     store, cfg = get_store()
     now = datetime.now(timezone.utc).isoformat()
     store.put_json(_key_to_path(key), {
@@ -42,11 +44,12 @@ def memory_set(key, value):
 @memory.command("get")
 @click.argument("key")
 def memory_get(key):
-    """Get a memory value by key."""
+    """Get a memory value by key. Exits with code 1 if not found."""
     store, _ = get_store()
     data = store.get_json(_key_to_path(key))
     if data is None:
-        raise click.ClickException(f"Key '{key}' not found")
+        click.echo("", err=True)
+        raise SystemExit(1)
     click.echo(data["value"])
 
 
