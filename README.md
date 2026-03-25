@@ -6,7 +6,7 @@
 Coordination layer for multi-agent AI systems. Shared memory, messaging, and task coordination — all stored as JSON in any S3 bucket.
 
 ```
-  Terminal 1 (designer)              Terminal 2 (developer)
+  Agent 1 (designer)                 Agent 2 (developer)
   ┌──────────────────────┐           ┌──────────────────────┐
   │ tracecraft claim      │           │ tracecraft wait-for   │
   │   design              │           │   design              │
@@ -25,6 +25,8 @@ Coordination layer for multi-agent AI systems. Shared memory, messaging, and tas
             │   HuggingFace)       │
             └──────────────────────┘
 ```
+
+<img width="814" alt="tracecraft CLI" src="https://github.com/user-attachments/assets/8e0b7a71-45af-4df4-99a5-712481b19a85" />
 
 ## Quick start
 
@@ -163,11 +165,14 @@ TRACECRAFT_AGENT=developer tracecraft inbox
 
 ---
 
-## Live demo
+## Example coordination
 
-Two Claude Code agents coordinated through HuggingFace Buckets — browsable on the Hub:
+Two Claude Code agents coordinating through tracecraft via HuggingFace Buckets:
 
-https://huggingface.co/buckets/arrmlet/tracecraft-test
+<img width="100%" alt="Two Claude Code agents coordinating through tracecraft" src="https://github.com/user-attachments/assets/c2103ff9-afa9-48e9-8aa9-4d4089a66b57" />
+
+> See full coordination data (agents, memory, messages, steps, artifacts) stored as JSON on the Hub:
+> [huggingface.co/buckets/arrmlet/tracecraft-test](https://huggingface.co/buckets/arrmlet/tracecraft-test)
 
 ---
 
