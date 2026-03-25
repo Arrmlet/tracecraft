@@ -1,281 +1,178 @@
 # tracecraft
 
-**Coordination layer for multi-agent AI systems.** Shared memory, experiment tracking, and session replay.
+[![PyPI](https://img.shields.io/pypi/v/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-```bash
-pip install tracecraft
+Coordination layer for multi-agent AI systems. Shared memory, messaging, and task coordination — all stored as JSON in any S3 bucket.
+
+```
+  Agent 1 (designer)                 Agent 2 (developer)
+  ┌──────────────────────┐           ┌──────────────────────┐
+  │ tracecraft claim      │           │ tracecraft wait-for   │
+  │   design              │           │   design              │
+  │                       │           │   ...waiting...       │
+  │ tracecraft complete   │  ──────>  │                       │
+  │   design --note "done"│           │ ✓ design complete     │
+  │                       │           │                       │
+  │                       │  <──────  │ tracecraft send       │
+  │                       │           │   designer "starting" │
+  └──────────────────────┘           └──────────────────────┘
+              \                  /
+               \                /
+            ┌──────────────────────┐
+            │  Any S3 bucket       │
+            │  (MinIO, AWS, R2,    │
+            │   HuggingFace)       │
+            └──────────────────────┘
 ```
 
----
-
-When you run 10 AI agents in parallel, they need to coordinate. They need to share results, claim tasks, wait for each other, and pass context forward. Today, that infrastructure doesn't exist. Tracecraft is it.
-
-```bash
-# Agent A finishes a step and shares the result
-tracecraft memory set s1a.status "complete"
-tracecraft complete S1.A --note "SDK core built. Watch out for race in queue.py"
-
-# Agent B reads it and starts its work
-tracecraft wait-for S1.A
-tracecraft memory get s1a.status
-tracecraft claim S1.B
-```
-
-Works with Claude Code, Codex, CrewAI, LangGraph, Hermes Agent, autoresearch, or any process that can call a CLI.
-
----
-
-## Why
-
-Andrej Karpathy ran [700 experiments in 2 days](https://x.com/karpathy/status/2030371219518931079) with autoresearch. Then his labs [got wiped out in an outage](https://x.com/karpathy/status/2031792523187040643). No persistence, no replay, no failover.
-
-He said the next step is ["asynchronously massively collaborative agents"](https://x.com/karpathy/status/2030705271627284816) — 7,500 people agreed.
-
-[claude-peers](https://github.com/louislva/claude-peers-mcp) proved 400K people want agent coordination. But it's ephemeral messaging only — no shared memory, no persistence, no experiment tracking.
-
-Tracecraft is the production infrastructure for both use cases.
-
----
-
-## What it does
-
-| Capability | Command | What happens |
-|-----------|---------|-------------|
-| **Shared memory** | `tracecraft memory set key value` | Agents read/write persistent key-value state |
-| **Messaging** | `tracecraft send agent-b "done"` | Direct or broadcast messages between agents |
-| **Task claiming** | `tracecraft claim S1.A` | Atomic step claiming so agents don't collide |
-| **Barriers** | `tracecraft wait-for S1.A S1.B` | Block until dependencies complete |
-| **Handoffs** | `tracecraft complete S1.A --note "..."` | Structured context for the next agent |
-| **Experiment tracking** | `tracecraft run start "exp-v2"` | Track runs, metrics, artifacts, cost |
-| **Session replay** | `tracecraft replay <run-id>` | Step-by-step replay of any past run |
-| **Agent registry** | `tracecraft agents` | See who's online and what they're working on |
-
----
+<img width="814" alt="tracecraft CLI" src="https://github.com/user-attachments/assets/8e0b7a71-45af-4df4-99a5-712481b19a85" />
 
 ## Quick start
 
-### 1. Install
-
 ```bash
-pip install tracecraft
+pip install tracecraft-ai
 ```
 
-### 2. Start the server
-
+Start MinIO locally (or use AWS S3, Cloudflare R2, HuggingFace Buckets):
 ```bash
-tracecraft serve
+docker run -d -p 9000:9000 -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123456 minio/minio server /data
 ```
 
-This starts PostgreSQL + SeaweedFS + the tracecraft server locally via Docker.
-
-### 3. Use from any agent
-
+Initialize two agents:
 ```bash
-# From a Claude Code session, a Python script, a bash script — anything
-tracecraft memory set research.findings '{"papers": 47, "relevant": 12}'
-tracecraft send agent-writer "Research phase complete, 12 relevant papers found"
-tracecraft run log-metric quality_score 0.92
+# Terminal 1
+tracecraft init --project myproject --agent designer \
+  --endpoint http://localhost:9000 --bucket tracecraft \
+  --access-key admin --secret-key admin123456
+
+# Terminal 2
+tracecraft init --project myproject --agent developer \
+  --endpoint http://localhost:9000 --bucket tracecraft \
+  --access-key admin --secret-key admin123456
 ```
 
-### 4. Or use the Python SDK
+Now they can coordinate:
+```bash
+# Designer claims a task and shares state
+$ tracecraft claim design
+Claimed step design as designer
 
-```python
-import tracecraft
+$ tracecraft memory set design.status "complete"
+Set design.status = complete
 
-tracecraft.init(project="my-research")
+$ tracecraft send developer "Design is ready"
+Sent to developer: Design is ready
 
-with tracecraft.run("prompt-comparison-v2") as run:
-    with run.agent(name="researcher", model="claude-sonnet-4-20250514") as agent:
-        with agent.step("search", kind="tool_call") as step:
-            step.log_input({"query": "multi-agent coordination"})
-            step.log_output(results)
+# Developer checks messages and picks it up
+$ tracecraft inbox
+[2026-03-24T14:00:00Z] (direct) designer: Design is ready
 
-        agent.shared_memory.set("findings", {"papers": 47})
-        agent.send("writer", "Research complete")
+$ tracecraft memory get design.status
+complete
 
-    run.log_metrics({"quality_score": 0.92, "cost": 0.034})
+$ tracecraft claim implementation
+Claimed step implementation as developer
+```
+
+Everything is stored as JSON files in S3. No servers. No databases.
+
+---
+
+## What agents get
+
+- **Shared memory** — `tracecraft memory set/get/list` — persistent key-value state any agent can read/write
+- **Messaging** — `tracecraft send/inbox` — direct messages or broadcast to all agents
+- **Task claiming** — `tracecraft claim/complete` — claim steps so agents don't collide
+- **Barriers** — `tracecraft wait-for step1 step2` — block until dependencies complete
+- **Handoffs** — `tracecraft complete step --note "context for next agent"`
+- **Artifacts** — `tracecraft artifact upload/download/list` — share files between agents
+- **Agent registry** — `tracecraft agents` — see who's online and what they're working on
+
+Works with any process that can call a CLI — Claude Code, OpenClaw, Hermes Agent, Codex, bash scripts, Python, anything.
+
+---
+
+## Storage backends
+
+No vendor lock-in. Bring your own S3:
+
+```bash
+# Local development (recommended to start)
+tracecraft init --endpoint http://localhost:9000 ...    # MinIO
+tracecraft init --endpoint http://localhost:8333 ...    # SeaweedFS
+
+# Production
+tracecraft init --endpoint https://s3.amazonaws.com ... # AWS S3
+tracecraft init --endpoint https://xxx.r2.cloudflarestorage.com ... # Cloudflare R2
+
+# HuggingFace Buckets (browsable on the Hub)
+pip install tracecraft-ai[huggingface]
+tracecraft init --backend hf --bucket username/my-bucket ...
 ```
 
 ---
 
-## Integrations
+## How it works
 
-Tracecraft works with any agent framework. One-line integrations for the major ones:
-
-```python
-# CrewAI
-from tracecraft.integrations.crewai import TracecraftCallback
-crew = Crew(agents=[...], callbacks=[TracecraftCallback()])
-
-# Claude Agent SDK
-from tracecraft.integrations.claude_sdk import tracecraft_hooks
-agent = Agent(model="claude-sonnet-4-20250514", hooks=tracecraft_hooks())
-
-# LangGraph
-from tracecraft.integrations.langgraph import TracecraftTracer
-result = app.invoke(input, config={"callbacks": [TracecraftTracer()]})
-
-# Hermes Agent — coming soon
-# AutoGen — coming soon
-```
-
----
-
-## Architecture
+All coordination state is JSON files in S3:
 
 ```
-Agents (Claude Code, Codex, CrewAI, scripts, anything)
-    |
-    |  tracecraft CLI  or  Python SDK
-    |
-    v
-Tracecraft Server (FastAPI)
-    |
-    +--- PostgreSQL (metadata, coordination state, experiment tracking)
-    +--- SeaweedFS (artifacts, memory snapshots, replay files)
-    +--- Redis (pub/sub, real-time notifications, locks)
+s3://bucket/project/
+  agents/designer.json          ← who's alive, what they're doing
+  memory/design/status.json     ← shared key-value state
+  messages/developer/1234.json  ← agent inboxes
+  steps/design/claim.json       ← who claimed what
+  steps/design/status.json      ← pending → in_progress → complete
+  steps/design/handoff.json     ← notes for the next agent
+  artifacts/design/mockup.html  ← shared files
 ```
 
-Everything self-hosted. No cloud dependency. One `docker compose up` to start.
+Any agent that can call `tracecraft` can participate. Any S3 browser (MinIO console, AWS console, HuggingFace Hub) lets you watch agents coordinate in real-time.
 
 ---
 
 ## CLI reference
 
 ```bash
-# Server
-tracecraft serve                          # Start local server
-tracecraft status                         # Check connection
-
-# Shared memory
-tracecraft memory set <key> <value>       # Write (JSON or string)
-tracecraft memory get <key>               # Read
-tracecraft memory list [--prefix X]       # List keys
-tracecraft memory watch <pattern>         # Stream changes in real-time
-
-# Messaging
-tracecraft send <agent-id> <message>      # Direct message
-tracecraft broadcast <message>            # Message all agents
-tracecraft inbox                          # Check messages
-tracecraft inbox --watch                  # Stream incoming messages
-
-# Coordination
-tracecraft claim <step-id>                # Claim a task (atomic)
-tracecraft complete <step-id> [--note X]  # Mark done + handoff note
-tracecraft wait-for <step-ids...>         # Block until all complete
-
-# Experiment tracking
-tracecraft run start <name>               # Start a tracked run
-tracecraft run log-metric <name> <value>  # Log a metric
-tracecraft run log-artifact <name> <path> # Upload an artifact
-tracecraft run end [--status X]           # End the run
-
-# Inspection
+tracecraft init                           # Configure S3 + project + agent
 tracecraft agents                         # Who's online?
-tracecraft runs                           # List all runs
-tracecraft runs inspect <id>              # Step-by-step timeline
-tracecraft replay <id>                    # Replay a past run
+
+tracecraft memory set <key> <value>       # Write (dots become path separators)
+tracecraft memory get <key>               # Read
+tracecraft memory list [prefix]           # List keys
+
+tracecraft send <agent-id> <message>      # Direct message
+tracecraft send _broadcast <message>      # Broadcast to all
+tracecraft inbox                          # Read messages
+tracecraft inbox --delete                 # Read and clear
+
+tracecraft claim <step-id>                # Claim a step
+tracecraft complete <step-id> [--note X]  # Mark done + handoff
+tracecraft step-status <step-id>          # Check status
+tracecraft wait-for <step-ids...>         # Block until complete (default 300s timeout)
+
+tracecraft artifact upload <path> [--step id]   # Share a file
+tracecraft artifact download <name> [--step id] # Get a file
+tracecraft artifact list [--step id]             # List files
 ```
 
----
-
-## Use cases
-
-### Parallel Claude Code sessions
-Run 4 Claude Code agents in git worktrees, each building a different module. They claim steps, share artifacts, wait at barriers, and hand off context — all through tracecraft.
-
-### Karpathy-style autoresearch
-Run hundreds of experiments overnight. Every run is tracked with metrics, artifacts, and cost. Replay any run to understand what the agent tried. Compare runs to find what worked.
-
-### CrewAI/LangGraph production monitoring
-Track every agent decision, tool call, and handoff in production multi-agent workflows. Debug failures with session replay. Attribute costs to specific agents.
-
-### Benchmarking multi-agent systems
-Compare different agent configurations (3 agents vs 5 agents, GPT vs Claude, different prompts) with controlled experiment tracking and standardized metrics.
-
----
-
-## How it compares
-
-| | tracecraft | Langfuse | LangSmith | claude-peers | AgentOps |
-|---|---|---|---|---|---|
-| Open source | MIT | MIT (ClickHouse) | No | MIT | Partial |
-| Shared memory | Yes | No | No | No | No |
-| Agent coordination | Yes | No | No | Messaging only | No |
-| Experiment tracking | Yes | Tracing only | Tracing only | No | Monitoring |
-| Session replay | Yes | Trace waterfall | Trace waterfall | No | No |
-| Artifact storage | Yes (SeaweedFS) | No | No | No | No |
-| CLI-first | Yes | No | No | No | No |
-| Self-hosted | Yes | Yes | Enterprise only | Localhost | No |
-| Works with any framework | Yes | Yes | LangChain-centric | Claude Code only | Yes |
-
----
-
-## Project structure
-
-```
-tracecraft/
-  sdk/
-    tracecraft/              Python SDK + CLI
-      cli/                   CLI commands (click)
-      integrations/          CrewAI, Claude SDK, LangGraph adapters
-      transport/             Batching, retry, offline buffer
-  server/
-    tracecraft_server/       FastAPI server
-      api/v1/                REST endpoints
-      core/                  Config, auth, database
-      storage/               SeaweedFS + artifact management
-      services/              Shared memory, mailbox, coordination, registry
-      models/                SQLAlchemy models
-      ws/                    WebSocket handlers
-  dashboard/                 Web UI (Phase 3)
-  examples/                  Integration examples
-  benchmarks/                MAExBench benchmark suite
-  plans/                     Construction blueprints for contributors
-  docs/                      Documentation
-```
-
----
-
-## Roadmap
-
-- [x] Architecture design and blueprints
-- [ ] Core SDK (init, run, agent, step)
-- [ ] Server (PostgreSQL + SeaweedFS + Redis)
-- [ ] Shared memory + messaging + coordination primitives
-- [ ] CLI tool
-- [ ] CrewAI integration
-- [ ] Claude Agent SDK integration
-- [ ] LangGraph integration
-- [ ] Dashboard with session replay
-- [ ] MAExBench (multi-agent experiment benchmark)
-- [ ] arXiv paper
-
----
-
-## Contributing
-
-Tracecraft is built for parallel development. The `plans/` directory contains detailed construction blueprints where each step is self-contained — a fresh contributor (human or AI) can pick up any step and execute it independently.
-
+For multiple agents in the same directory, set identity via env var:
 ```bash
-git clone https://github.com/Arrmlet/tracecraft
-cd tracecraft
-cat plans/tracecraft-blueprint-v2.md    # Read the blueprint
+TRACECRAFT_AGENT=designer tracecraft inbox
+TRACECRAFT_AGENT=developer tracecraft inbox
 ```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
 
 ---
 
-## Research
+## Example coordination
 
-Tracecraft is also a research instrument. We're working toward:
+Two Claude Code agents coordinating through tracecraft via HuggingFace Buckets:
 
-- **arXiv preprint**: "Tracecraft: Shared Memory and Coordination Primitives for Multi-Agent LLM Systems"
-- **MAExBench**: A standardized benchmark for evaluating multi-agent coordination, cost efficiency, and reliability
-- **NeurIPS/ICLR submission**: Empirical findings from real-world multi-agent experiment data
+<img width="100%" alt="Two Claude Code agents coordinating through tracecraft" src="https://github.com/user-attachments/assets/c2103ff9-afa9-48e9-8aa9-4d4089a66b57" />
 
-If you're a researcher interested in multi-agent systems, we'd love to collaborate. Open an issue or reach out.
+> See full coordination data (agents, memory, messages, steps, artifacts) stored as JSON on the Hub:
+> [huggingface.co/buckets/arrmlet/tracecraft-test](https://huggingface.co/buckets/arrmlet/tracecraft-test)
 
 ---
 
