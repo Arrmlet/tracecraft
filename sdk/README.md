@@ -165,6 +165,18 @@ TRACECRAFT_AGENT=developer tracecraft inbox
 
 ---
 
+## Use cases
+
+**Multi-agent coding** — Run 4 Claude Code agents in worktrees. They claim modules, share artifacts, wait at barriers, hand off context.
+
+**Autonomous research** — Run hundreds of autoresearch experiments. Agents claim experiments, share results via memory, avoid duplicating work.
+
+**Collaborative knowledge bases** — Multiple agents build a wiki together. One processes papers, another writes summaries, a third checks consistency. All coordinated through shared memory and messaging.
+
+**CI/CD pipelines** — Lint → test → build → deploy as tracecraft steps. Each stage claims its step and waits for dependencies.
+
+---
+
 ## Example coordination
 
 Two Claude Code agents coordinating through tracecraft via HuggingFace Buckets:
@@ -173,6 +185,12 @@ Two Claude Code agents coordinating through tracecraft via HuggingFace Buckets:
 
 > See full coordination data (agents, memory, messages, steps, artifacts) stored as JSON on the Hub:
 > [huggingface.co/buckets/arrmlet/tracecraft-test](https://huggingface.co/buckets/arrmlet/tracecraft-test)
+
+---
+
+## Works with
+
+Tested with Claude Code, OpenAI Codex, and Hermes Agent. Works with any agent or script that can run a shell command.
 
 ---
 
