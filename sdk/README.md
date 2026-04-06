@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-Coordination layer for multi-agent AI systems. Shared memory, messaging, and task coordination — all stored as JSON in any S3 bucket.
+Persistent shared memory and coordination layer for AI agents. Any agent can store, share, and retrieve data from the same bucket — memory, messages, tasks, and artifacts. Works with any S3 or HuggingFace bucket.
 
 ```
   Agent 1 (designer)                 Agent 2 (developer)
