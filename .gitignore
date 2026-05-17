@@ -26,5 +26,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 node_modules/
-sdk/.tracecraft.json
+# tracecraft credential file (contains S3 access/secret keys — never commit)
+.tracecraft.json
+**/.tracecraft.json
 plans/LAUNCH_PLAYBOOK.md
