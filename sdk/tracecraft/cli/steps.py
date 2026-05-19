@@ -5,28 +5,30 @@ from datetime import datetime, timezone
 
 import click
 
+from tracecraft.s3 import PreconditionFailed
 from tracecraft.store import get_store
 
 
 @click.command()
 @click.argument("step_id")
 def claim(step_id):
-    """Claim a step for this agent."""
+    """Claim a step for this agent (atomic via If-None-Match)."""
     store, cfg = get_store()
     agent = cfg["agent_id"]
     sid = step_id.lower().replace(".", "-")
 
-    # Check if already claimed
-    if store.exists(f"steps/{sid}/claim.json"):
-        existing = store.get_json(f"steps/{sid}/claim.json")
-        owner = existing.get("agent", "unknown") if existing else "unknown"
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        store.put_json(
+            f"steps/{sid}/claim.json",
+            {"agent": agent, "claimed_at": now},
+            if_none_match=True,
+        )
+    except PreconditionFailed:
+        existing = store.get_json(f"steps/{sid}/claim.json") or {}
+        owner = existing.get("agent", "unknown")
         raise click.ClickException(f"Step {step_id} already claimed by {owner}")
 
-    now = datetime.now(timezone.utc).isoformat()
-    store.put_json(f"steps/{sid}/claim.json", {
-        "agent": agent,
-        "claimed_at": now,
-    })
     store.put_json(f"steps/{sid}/status.json", {
         "status": "in_progress",
         "agent": agent,

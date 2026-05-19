@@ -10,6 +10,14 @@ from botocore.exceptions import ClientError
 from tracecraft.config import load_config
 
 
+class PreconditionFailed(Exception):
+    """Raised when an atomic put with If-None-Match=* finds an existing object."""
+
+    def __init__(self, key):
+        super().__init__(f"object exists: {key}")
+        self.key = key
+
+
 class S3:
     def __init__(self, endpoint, bucket, project, access_key, secret_key):
         self.client = boto3.client(
@@ -36,15 +44,21 @@ class S3:
     def _key(self, key):
         return f"{self.project}/{key}"
 
-    def put_json(self, key, data):
+    def put_json(self, key, data, if_none_match=False):
+        kwargs = dict(
+            Bucket=self.bucket,
+            Key=self._key(key),
+            Body=json.dumps(data, indent=2),
+            ContentType="application/json",
+        )
+        if if_none_match:
+            kwargs["IfNoneMatch"] = "*"
         try:
-            self.client.put_object(
-                Bucket=self.bucket,
-                Key=self._key(key),
-                Body=json.dumps(data, indent=2),
-                ContentType="application/json",
-            )
+            self.client.put_object(**kwargs)
         except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if if_none_match and code in ("PreconditionFailed", "ConditionalRequestConflict"):
+                raise PreconditionFailed(key) from e
             raise click.ClickException(f"S3 put failed: {e}")
 
     def get_json(self, key):
@@ -59,11 +73,12 @@ class S3:
     def list_keys(self, prefix=""):
         try:
             full_prefix = self._key(prefix)
-            resp = self.client.list_objects_v2(Bucket=self.bucket, Prefix=full_prefix)
             keys = []
-            for obj in resp.get("Contents", []):
-                stripped = obj["Key"][len(self.project) + 1 :]
-                keys.append(stripped)
+            paginator = self.client.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=full_prefix):
+                for obj in page.get("Contents", []):
+                    stripped = obj["Key"][len(self.project) + 1 :]
+                    keys.append(stripped)
             return keys
         except ClientError as e:
             raise click.ClickException(f"S3 list failed: {e}")

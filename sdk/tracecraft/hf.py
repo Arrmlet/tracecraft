@@ -27,12 +27,21 @@ class HF:
     def _path(self, key):
         return f"{self.base}/{self.project}/{key}"
 
-    def put_json(self, key, data):
+    def put_json(self, key, data, if_none_match=False):
         try:
             path = self._path(key)
+            if if_none_match:
+                # HfFileSystem has no native conditional PUT — best-effort check-then-write.
+                # This is racy, but documented; S3-compatible backends use IfNoneMatch=* for safety.
+                if self.fs.exists(path):
+                    from tracecraft.s3 import PreconditionFailed
+                    raise PreconditionFailed(key)
             with self.fs.open(path, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
+            from tracecraft.s3 import PreconditionFailed
+            if isinstance(e, PreconditionFailed):
+                raise
             raise click.ClickException(f"HF put failed: {e}")
 
     def get_json(self, key):
@@ -50,8 +59,8 @@ class HF:
     def list_keys(self, prefix=""):
         try:
             path = self._path(prefix)
-            entries = self.fs.ls(path, detail=False)
-            # Strip the base path to return relative keys
+            # find() is recursive and matches S3 list semantics
+            entries = self.fs.find(path, detail=False) if self.fs.exists(path) else []
             base_prefix = f"buckets/{self.bucket}/{self.project}/"
             keys = []
             for entry in entries:
