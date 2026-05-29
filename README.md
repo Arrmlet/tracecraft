@@ -93,6 +93,33 @@ Works with any process that can call a CLI — Claude Code, OpenClaw, Hermes Age
 
 ---
 
+## Session mirror
+
+Mirror a coding agent's full session transcript into the same bucket as your
+coordination state — so one bucket holds every agent's reasoning **and** the
+messages between them.
+
+```bash
+tracecraft session mirror --harness claude-code     # tail this session into the bucket
+tracecraft session list                             # browse mirrored sessions
+tracecraft session show <id> --tail 50              # peek at a transcript
+```
+
+Four harnesses, one read-only interface:
+
+| `--harness` | Source | Storage |
+|---|---|---|
+| `claude-code` | `~/.claude/projects/.../<id>.jsonl` | JSONL tail |
+| `codex` | `~/.codex/sessions/.../rollout-*.jsonl` | JSONL tail |
+| `openclaw` | `<state>/agents/<id>/sessions/*.jsonl` | JSONL tail |
+| `hermes` | `~/.hermes/state.db` | SQLite (read-only) |
+
+Sessions are never modified at the source. Redaction (AWS/Anthropic/OpenAI/HF/
+GitHub/Slack token shapes) runs on by default and is counted in `meta.json`.
+Full reference: [docs/session-mirror.md](docs/session-mirror.md).
+
+---
+
 ## Storage backends
 
 No vendor lock-in. Bring your own S3:
@@ -126,6 +153,8 @@ s3://bucket/project/
   steps/design/status.json      ← pending → in_progress → complete
   steps/design/handoff.json     ← notes for the next agent
   artifacts/design/mockup.html  ← shared files
+  sessions/claude-code/<id>/part-00000-<uuid>.jsonl  ← mirrored agent transcript
+  sessions/claude-code/<id>/meta.json                ← cumulative session metadata
 ```
 
 Any agent that can call `tracecraft` can participate. Any S3 browser (MinIO console, AWS console, HuggingFace Hub) lets you watch agents coordinate in real-time.
@@ -155,6 +184,11 @@ tracecraft wait-for <step-ids...>         # Block until complete (default 300s t
 tracecraft artifact upload <path> [--step id]   # Share a file
 tracecraft artifact download <name> [--step id] # Get a file
 tracecraft artifact list [--step id]             # List files
+
+tracecraft session mirror --harness <name>       # Mirror a session into the bucket
+tracecraft session list                          # Browse mirrored sessions
+tracecraft session show <id> [--tail N]          # Inspect meta + transcript tail
+tracecraft session stop <id>                     # Clear local state, mark ended
 ```
 
 For multiple agents in the same directory, set identity via env var:
