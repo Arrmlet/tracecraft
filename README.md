@@ -1,32 +1,19 @@
 # tracecraft
 
 [![PyPI](https://img.shields.io/pypi/v/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
+[![Python](https://img.shields.io/pypi/pyversions/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://github.com/Arrmlet/tracecraft/actions/workflows/test.yml/badge.svg)](https://github.com/Arrmlet/tracecraft/actions/workflows/test.yml)
 
-Persistent shared memory and coordination layer for AI agents. Any agent can store, share, and retrieve data from the same bucket — memory, messages, tasks, and artifacts. Works with any S3 or HuggingFace bucket.
+**Tracecraft is a CLI coordination layer for multi-agent AI systems** — shared **memory**, a **mailbox**, atomic task **claims**, **handoffs**, and **artifacts**, plus mirrored **session transcripts**, all stored as plain JSON in any **S3** or **HuggingFace** bucket. No server. No database. No SDK lock-in.
 
-```
-  Agent 1 (designer)                 Agent 2 (developer)
-  ┌──────────────────────┐           ┌──────────────────────┐
-  │ tracecraft claim      │           │ tracecraft wait-for   │
-  │   design              │           │   design              │
-  │                       │           │   ...waiting...       │
-  │ tracecraft complete   │  ──────>  │                       │
-  │   design --note "done"│           │ ✓ design complete     │
-  │                       │           │                       │
-  │                       │  <──────  │ tracecraft send       │
-  │                       │           │   designer "starting" │
-  └──────────────────────┘           └──────────────────────┘
-              \                  /
-               \                /
-            ┌──────────────────────┐
-            │  Any S3 bucket       │
-            │  (MinIO, AWS, R2,    │
-            │   HuggingFace)       │
-            └──────────────────────┘
-```
+<p align="center">
+  <img width="100%" alt="Two agents race for the same task; the second is atomically rejected — no server" src="docs/assets/tracecraft-claim-race.gif">
+</p>
 
-<img width="814" alt="tracecraft CLI" src="https://github.com/user-attachments/assets/8e0b7a71-45af-4df4-99a5-712481b19a85" />
+> Two agents, one bucket — they can't grab the same work, enforced by an S3 conditional write. No server, no lock service. All state is plain JSON you own; open it in the MinIO console or [HuggingFace Hub](https://huggingface.co/buckets/arrmlet/tracecraft-test) and watch it live.
+
+---
 
 ## Quick start
 
@@ -34,108 +21,145 @@ Persistent shared memory and coordination layer for AI agents. Any agent can sto
 pip install tracecraft-ai
 ```
 
-Start MinIO locally (or use AWS S3, Cloudflare R2, HuggingFace Buckets):
+The only infra is a bucket. For local dev, run MinIO (in production, point at AWS / R2 / HF instead):
+
 ```bash
-docker run -d -p 9000:9000 -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123456 minio/minio server /data
+docker run -d -p 9000:9000 \
+  -e MINIO_ROOT_USER=admin -e MINIO_ROOT_PASSWORD=admin123456 \
+  minio/minio server /data
 ```
 
-Initialize two agents:
+Register two agents against the same project:
+
 ```bash
 # Terminal 1
-tracecraft init --project myproject --agent designer \
+tracecraft init --project demo --agent designer \
   --endpoint http://localhost:9000 --bucket tracecraft \
   --access-key admin --secret-key admin123456
 
-# Terminal 2
-tracecraft init --project myproject --agent developer \
+# Terminal 2 — same flags, --agent developer
+tracecraft init --project demo --agent developer \
   --endpoint http://localhost:9000 --bucket tracecraft \
   --access-key admin --secret-key admin123456
 ```
 
-Now they can coordinate:
-```bash
-# Designer claims a task and shares state
+Now the core move — **two agents cannot grab the same work**, with no lock service and no server to run:
+
+```console
+# Terminal 1 — designer claims the task
 $ tracecraft claim design
 Claimed step design as designer
 
-$ tracecraft memory set design.status "complete"
-Set design.status = complete
+# Terminal 2 — developer tries the SAME task, atomically rejected (S3 If-None-Match)
+$ tracecraft claim design
+Error: Step design already claimed by designer
 
-$ tracecraft send developer "Design is ready"
-Sent to developer: Design is ready
+# designer finishes and leaves a handoff note for whoever picks up next
+$ tracecraft complete design --note "API in api.py, see memory key design.contract"
+Completed step design
 
-# Developer checks messages and picks it up
-$ tracecraft inbox
-[2026-03-24T14:00:00Z] (direct) designer: Design is ready
-
-$ tracecraft memory get design.status
-complete
-
-$ tracecraft claim implementation
-Claimed step implementation as developer
+# developer was blocked on it — now it unblocks
+$ tracecraft wait-for design
+All steps complete: design
 ```
 
-Everything is stored as JSON files in S3. No servers. No databases.
+Every call is stateless. Everything you just did is JSON files in the bucket — no server stayed running, nothing to tear down.
 
 ---
 
-## What agents get
+## Agents talk to each other
 
-- **Shared memory** — `tracecraft memory set/get/list` — persistent key-value state any agent can read/write
-- **Messaging** — `tracecraft send/inbox` — direct messages or broadcast to all agents
-- **Task claiming** — `tracecraft claim/complete` — claim steps so agents don't collide
-- **Barriers** — `tracecraft wait-for step1 step2` — block until dependencies complete
-- **Handoffs** — `tracecraft complete step --note "context for next agent"`
-- **Artifacts** — `tracecraft artifact upload/download/list` — share files between agents
-- **Agent registry** — `tracecraft agents` — see who's online and what they're working on
+Beyond claiming work, agents coordinate by messaging through the bucket — direct messages and broadcasts, each one a JSON file in a per-agent mailbox.
 
-Works with any process that can call a CLI — Claude Code, OpenClaw, Hermes Agent, Codex, bash scripts, Python, anything.
-
----
-
-## Storage backends
-
-No vendor lock-in. Bring your own S3:
+<p align="center">
+  <img width="100%" alt="One agent sends a handoff, another reads its inbox and replies, then a broadcast to the team" src="docs/assets/tracecraft-messaging.gif">
+</p>
 
 ```bash
-# Local development (recommended to start)
-tracecraft init --endpoint http://localhost:9000 ...    # MinIO
-tracecraft init --endpoint http://localhost:8333 ...    # SeaweedFS
-
-# Production
-tracecraft init --endpoint https://s3.amazonaws.com ... # AWS S3
-tracecraft init --endpoint https://xxx.r2.cloudflarestorage.com ... # Cloudflare R2
-
-# HuggingFace Buckets (browsable on the Hub)
-pip install tracecraft-ai[huggingface]
-tracecraft init --backend hf --bucket username/my-bucket ...
+tracecraft send developer "contract is in memory key design.contract"
+tracecraft inbox                       # read your direct + broadcast messages
+tracecraft send _broadcast "v1 cut at 3pm, wrap your tasks"
 ```
+
+---
+
+## Why tracecraft
+
+- **Atomic task claims** — two agents never grab the same work, enforced by S3 `If-None-Match` conditional puts, with no central coordinator.
+- **Coordinate across hosts** — the bucket *is* the coordinator, so agents on different machines or clouds work together by default — not just processes sharing one laptop.
+- **No server, no database** — every CLI call is stateless; all state is JSON in a bucket you already own.
+- **Any backend, zero lock-in** — AWS, Cloudflare R2, MinIO, Backblaze B2, Wasabi, SeaweedFS, and HuggingFace Buckets all work today.
+- **Harness-agnostic** — Claude Code, Codex, OpenClaw, Hermes, bash, Python, or anything that can run a shell command.
+- **Coordination + reasoning together** — the events *and* each agent's full session transcript live in one bucket, not two systems.
+
+> Frameworks like CrewAI and LangGraph own the agent loop; memory layers like Mem0 store one agent's recall; in-process coordination tools assume every agent shares one machine. Tracecraft owns neither the loop nor the model — just the shared bucket the agents coordinate *through* — so it works across hosts, across clouds, and with any harness, via a plain CLI.
+
+---
+
+## Coordination + reasoning in one bucket
+
+Most coordination tools store the *events* — who claimed what, who messaged whom. Tracecraft stores those **and** each agent's full reasoning, by mirroring coding-agent session transcripts into the same bucket. When a run goes sideways, one `tracecraft session show` gives you the handoffs **and** the chain of thought behind them — same place, same JSON, no second system to wire up.
+
+```bash
+tracecraft session mirror --harness claude-code   # tail this session into the bucket
+tracecraft session show <id> --tail 50            # read coordination + reasoning together
+```
+
+Works with **Claude Code, Codex, OpenClaw, and Hermes**. Source transcripts are never modified; secret-shape redaction (AWS / Anthropic / OpenAI / HF / GitHub / Slack token patterns) is on by default and counted in metadata.
+
+Harness matrix, storage formats, and redaction details → **[docs/session-mirror.md](docs/session-mirror.md)**
 
 ---
 
 ## How it works
 
-All coordination state is JSON files in S3:
+Every agent action is a JSON file under `<bucket>/<project>/`:
 
 ```
-s3://bucket/project/
-  agents/designer.json          ← who's alive, what they're doing
-  memory/design/status.json     ← shared key-value state
-  messages/developer/1234.json  ← agent inboxes
-  steps/design/claim.json       ← who claimed what
-  steps/design/status.json      ← pending → in_progress → complete
-  steps/design/handoff.json     ← notes for the next agent
-  artifacts/design/mockup.html  ← shared files
+s3://bucket/demo/
+  agents/designer.json                       ← who's alive, what they're doing
+  memory/design/contract.json                ← shared key-value state
+  messages/developer/1738f3_designer.json    ← per-agent mailbox
+  steps/design/claim.json                    ← who claimed what (atomic)
+  steps/design/status.json                   ← pending → in_progress → complete
+  steps/design/handoff.json                  ← note for the next agent
+  artifacts/design/mockup.html               ← shared files
+  sessions/claude-code/<id>/part-00000-….jsonl  ← mirrored agent transcript
+  sessions/claude-code/<id>/meta.json            ← cumulative session metadata
 ```
 
-Any agent that can call `tracecraft` can participate. Any S3 browser (MinIO console, AWS console, HuggingFace Hub) lets you watch agents coordinate in real-time.
+Any process that can call `tracecraft` participates. Any S3 browser (MinIO console, AWS console, HuggingFace Hub) lets you watch agents coordinate in real time. Atomicity details and the HuggingFace fallback are in **[docs/s3-architecture.md](docs/s3-architecture.md)**.
 
 ---
 
-## CLI reference
+## Backends
+
+Bring your own bucket — no vendor lock-in:
+
+| Backend | `init` flag | Notes |
+|---|---|---|
+| MinIO | `--endpoint http://localhost:9000` | recommended for local dev |
+| SeaweedFS | `--endpoint http://localhost:8333` | self-hosted |
+| AWS S3 | `--endpoint https://s3.amazonaws.com` | |
+| Cloudflare R2 | `--endpoint https://<acct>.r2.cloudflarestorage.com` | zero egress fees |
+| Backblaze B2 / Wasabi | S3-compatible endpoint | |
+| HuggingFace Buckets | `--backend hf --bucket user/name` | browsable on the Hub; `pip install tracecraft-ai[huggingface]` |
+
+---
+
+## Use cases
+
+- **Multi-agent coding** — run several Claude Code / Codex agents in parallel; they claim modules, share artifacts, wait at barriers, and hand off context instead of stepping on each other.
+- **Autonomous research** — agents claim experiments, share results via memory, and avoid duplicating work across a fleet.
+- **Pipelines** — lint → test → build → deploy as claimed steps; each stage waits for its dependencies.
+
+---
+
+<details>
+<summary><strong>Full CLI reference</strong></summary>
 
 ```bash
-tracecraft init                           # Configure S3 + project + agent
+tracecraft init                           # Configure backend + project + agent
 tracecraft agents                         # Who's online?
 
 tracecraft memory set <key> <value>       # Write (dots become path separators)
@@ -147,50 +171,37 @@ tracecraft send _broadcast <message>      # Broadcast to all
 tracecraft inbox                          # Read messages
 tracecraft inbox --delete                 # Read and clear
 
-tracecraft claim <step-id>                # Claim a step
-tracecraft complete <step-id> [--note X]  # Mark done + handoff
+tracecraft claim <step-id>                # Claim a step (atomic)
+tracecraft complete <step-id> [--note X]  # Mark done + handoff note
 tracecraft step-status <step-id>          # Check status
 tracecraft wait-for <step-ids...>         # Block until complete (default 300s timeout)
 
-tracecraft artifact upload <path> [--step id]   # Share a file
-tracecraft artifact download <name> [--step id] # Get a file
+tracecraft artifact upload <path> [--step id]    # Share a file
+tracecraft artifact download <name> [--step id]  # Get a file
 tracecraft artifact list [--step id]             # List files
+
+tracecraft session mirror --harness <name>       # Mirror a session into the bucket
+tracecraft session list                          # Browse mirrored sessions
+tracecraft session show <id> [--tail N]          # Inspect meta + transcript tail
+tracecraft session stop <id>                     # Clear local state, mark ended
 ```
 
-For multiple agents in the same directory, set identity via env var:
+Run multiple agents from one directory by overriding identity per call:
+
 ```bash
-TRACECRAFT_AGENT=designer tracecraft inbox
+TRACECRAFT_AGENT=designer  tracecraft inbox
 TRACECRAFT_AGENT=developer tracecraft inbox
 ```
 
----
-
-## Use cases
-
-**Multi-agent coding** — Run 4 Claude Code agents in worktrees. They claim modules, share artifacts, wait at barriers, hand off context.
-
-**Autonomous research** — Run hundreds of autoresearch experiments. Agents claim experiments, share results via memory, avoid duplicating work.
-
-**Collaborative knowledge bases** — Multiple agents build a wiki together. One processes papers, another writes summaries, a third checks consistency. All coordinated through shared memory and messaging.
-
-**CI/CD pipelines** — Lint → test → build → deploy as tracecraft steps. Each stage claims its step and waits for dependencies.
+</details>
 
 ---
 
-## Example coordination
+## More
 
-Two Claude Code agents coordinating through tracecraft via HuggingFace Buckets:
-
-<img width="100%" alt="Two Claude Code agents coordinating through tracecraft" src="https://github.com/user-attachments/assets/c2103ff9-afa9-48e9-8aa9-4d4089a66b57" />
-
-> See full coordination data (agents, memory, messages, steps, artifacts) stored as JSON on the Hub:
-> [huggingface.co/buckets/arrmlet/tracecraft-test](https://huggingface.co/buckets/arrmlet/tracecraft-test)
-
----
-
-## Works with
-
-Tested with Claude Code, OpenAI Codex, and Hermes Agent. Works with any agent or script that can run a shell command.
+- [docs/session-mirror.md](docs/session-mirror.md) — session mirroring: harnesses, formats, redaction
+- [docs/s3-architecture.md](docs/s3-architecture.md) — atomicity, key layout, HuggingFace fallback
+- [plans/](plans/) — roadmap, research, and known gaps
 
 ---
 

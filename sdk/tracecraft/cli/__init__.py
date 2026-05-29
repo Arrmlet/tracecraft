@@ -9,6 +9,7 @@ from tracecraft.cli.agents import agents
 from tracecraft.cli.messages import send, inbox
 from tracecraft.cli.steps import claim, complete, step_status, wait_for
 from tracecraft.cli.artifacts import artifact
+from tracecraft.cli.session import session as session_group
 
 BANNER = """
 \033[36m  _                                  __ _
@@ -39,6 +40,7 @@ def cli(ctx):
         click.echo("    step-status    Check step progress")
         click.echo("    wait-for       Block until steps complete")
         click.echo("    artifact       Share files (upload/download/list)")
+        click.echo("    session        Mirror coding-agent traces (mirror/list/show/stop)")
         click.echo()
         click.echo("  \033[2mRun 'tracecraft <command> --help' for details.\033[0m")
         click.echo()
@@ -54,6 +56,7 @@ cli.add_command(complete)
 cli.add_command(step_status, "step-status")
 cli.add_command(wait_for, "wait-for")
 cli.add_command(artifact)
+cli.add_command(session_group)
 
 
 def main():
