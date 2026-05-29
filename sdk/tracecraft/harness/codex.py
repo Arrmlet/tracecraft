@@ -13,13 +13,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .base import Session
+from .base import FileTailHarness, Session
 
 
 _ROLLOUT_RE = re.compile(r"rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<id>[A-Za-z0-9_-]+)\.jsonl$")
 
 
-class CodexHarness:
+class CodexHarness(FileTailHarness):
     name = "codex"
 
     def __init__(self, root: Path | None = None) -> None:
@@ -41,23 +41,3 @@ class CodexHarness:
             session_id = m.group("id") if m else path.stem
             sessions.append(Session(path=path, session_id=session_id))
         return sessions
-
-    def active_session(self, cwd: Path) -> Session | None:
-        sessions = self.discover(cwd)
-        if not sessions:
-            return None
-        return max(sessions, key=lambda s: s.path.stat().st_mtime)
-
-    def read_new(self, session: Session, cursor: int) -> tuple[bytes, int]:
-        data = self.read_new_bytes(session, cursor)
-        return data, cursor + len(data)
-
-    def read_new_bytes(self, session: Session, offset: int) -> bytes:
-        if offset < 0:
-            raise ValueError(f"offset must be non-negative, got {offset}")
-        with open(session.path, "rb") as f:
-            f.seek(offset)
-            return f.read()
-
-    def size(self, session: Session) -> int:
-        return session.path.stat().st_size

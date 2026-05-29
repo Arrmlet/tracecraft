@@ -25,7 +25,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .base import Session
+from .base import FileTailHarness, Session
 
 
 def _resolve_state_dir() -> Path:
@@ -37,7 +37,7 @@ def _resolve_state_dir() -> Path:
     return Path.home() / ".openclaw"
 
 
-class OpenClawHarness:
+class OpenClawHarness(FileTailHarness):
     name = "openclaw"
 
     def __init__(self, root: Path | None = None) -> None:
@@ -74,23 +74,3 @@ class OpenClawHarness:
         # OpenClaw shards by agentId, not cwd — cwd is ignored.
         del cwd
         return [Session(path=p, session_id=self._stable_id(p)) for p in self._all_sessions()]
-
-    def active_session(self, cwd: Path) -> Session | None:
-        sessions = self.discover(cwd)
-        if not sessions:
-            return None
-        return max(sessions, key=lambda s: s.path.stat().st_mtime)
-
-    def read_new(self, session: Session, cursor: int) -> tuple[bytes, int]:
-        data = self.read_new_bytes(session, cursor)
-        return data, cursor + len(data)
-
-    def read_new_bytes(self, session: Session, offset: int) -> bytes:
-        if offset < 0:
-            raise ValueError(f"offset must be non-negative, got {offset}")
-        with open(session.path, "rb") as f:
-            f.seek(offset)
-            return f.read()
-
-    def size(self, session: Session) -> int:
-        return session.path.stat().st_size

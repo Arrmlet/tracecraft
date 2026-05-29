@@ -159,6 +159,3 @@ class HermesHarness:
 
         blob = ("\n".join(lines) + "\n").encode("utf-8") if lines else b""
         return blob, max_id
-
-    def read_new_bytes(self, session: Session, offset: int) -> bytes:
-        return self.read_new(session, offset)[0]

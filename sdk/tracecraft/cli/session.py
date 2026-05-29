@@ -114,7 +114,6 @@ def session():
     default=None,
     help="Project directory the session ran in (claude-code only). Defaults to $PWD.",
 )
-@click.option("--once", "once", is_flag=True, default=True, help="Single-shot mode (currently the only mode).")
 @click.option("--no-redact", is_flag=True, help="Skip redaction. Use only on fully-trusted buckets.")
 @click.option(
     "--min-bytes",
@@ -123,14 +122,13 @@ def session():
     show_default=True,
     help="Skip upload if fewer than this many new bytes are available.",
 )
-def mirror(harness_name, session_id, cwd_str, once, no_redact, min_bytes):
+def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
     """Pull new bytes from a harness session into the bucket (one-shot).
 
     Reads from the last known byte offset (or 0 on first run), applies regex
     redaction unless --no-redact, uploads the chunk as a new part object, and
     updates the session's meta.json. Idempotent and safe to re-run on a cron.
     """
-    del once  # only mode for now; flag reserved for future daemon mode
     store, cfg = get_store()
     harness = get_harness(harness_name)
     cwd = Path(cwd_str).expanduser().resolve() if cwd_str else Path.cwd()
@@ -152,13 +150,14 @@ def mirror(harness_name, session_id, cwd_str, once, no_redact, min_bytes):
     # `cursor` is an opaque per-harness position: a byte offset for file-backed
     # harnesses (claude-code, codex, openclaw), a rowid for SQLite (hermes).
     # The mirror loop never assumes it equals a byte count.
-    cursor = state.get("cursor", state.get("byte_offset", 0))  # byte_offset: back-compat
+    cursor = state.get("cursor", 0)
 
     # Cheap pre-check: is there plausibly anything new? size() is sampled, not
     # authoritative — read_new() returns the real consumed cursor below.
-    if harness.size(sess) - cursor < min_bytes:
+    cur_size = harness.size(sess)
+    if cur_size - cursor < min_bytes:
         click.echo(
-            f"nothing new: session={sess.session_id} cursor={cursor:,} size={harness.size(sess):,}"
+            f"nothing new: session={sess.session_id} cursor={cursor:,} size={cur_size:,}"
         )
         return
 
@@ -261,13 +260,9 @@ def list_(harness_filter, limit, sort_by):
     store, _ = get_store()
     keys = store.list_keys("sessions/")
     metas: list[dict] = []
-    seen: set[str] = set()
     for k in keys:
         if not k.endswith("/meta.json"):
             continue
-        if k in seen:
-            continue
-        seen.add(k)
         meta = store.get_json(k)
         if not meta:
             continue
