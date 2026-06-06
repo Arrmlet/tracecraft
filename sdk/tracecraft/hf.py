@@ -10,6 +10,7 @@ from tracecraft.config import load_config
 class HF:
     def __init__(self, bucket, project, token=None):
         from huggingface_hub import HfFileSystem
+
         self.fs = HfFileSystem(token=token)
         self.bucket = bucket  # e.g. "username/my-bucket"
         self.project = project
@@ -35,11 +36,13 @@ class HF:
                 # This is racy, but documented; S3-compatible backends use IfNoneMatch=* for safety.
                 if self.fs.exists(path):
                     from tracecraft.s3 import PreconditionFailed
+
                     raise PreconditionFailed(key)
             with self.fs.open(path, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
             from tracecraft.s3 import PreconditionFailed
+
             if isinstance(e, PreconditionFailed):
                 raise
             raise click.ClickException(f"HF put failed: {e}")
@@ -65,7 +68,7 @@ class HF:
             keys = []
             for entry in entries:
                 if entry.startswith(base_prefix):
-                    keys.append(entry[len(base_prefix):])
+                    keys.append(entry[len(base_prefix) :])
                 else:
                     keys.append(entry)
             return keys

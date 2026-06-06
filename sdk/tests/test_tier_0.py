@@ -57,6 +57,7 @@ def store(s3_env):
 
 # ---------- Fix 1: atomic claim ----------
 
+
 def test_fix1_atomic_put_first_writer_wins(store):
     """First put_json(if_none_match=True) succeeds; second raises PreconditionFailed."""
     store.put_json("steps/foo/claim.json", {"agent": "a"}, if_none_match=True)
@@ -80,15 +81,19 @@ def test_fix1_claim_cli_blocks_second_caller(s3_env, monkeypatch, tmp_path):
     cfg_file = tmp_path / ".tracecraft.json"
 
     def write_cfg(agent_id):
-        cfg_file.write_text(json.dumps({
-            "backend": "s3",
-            "bucket": BUCKET,
-            "project": PROJECT,
-            "endpoint": None,
-            "access_key": "testing",
-            "secret_key": "testing",
-            "agent_id": agent_id,
-        }))
+        cfg_file.write_text(
+            json.dumps(
+                {
+                    "backend": "s3",
+                    "bucket": BUCKET,
+                    "project": PROJECT,
+                    "endpoint": None,
+                    "access_key": "testing",
+                    "secret_key": "testing",
+                    "agent_id": agent_id,
+                }
+            )
+        )
 
     monkeypatch.chdir(tmp_path)
     write_cfg("agent-a")
@@ -106,6 +111,7 @@ def test_fix1_claim_cli_blocks_second_caller(s3_env, monkeypatch, tmp_path):
 
 # ---------- Fix 2: paginated list_keys ----------
 
+
 def test_fix2_list_keys_returns_more_than_1000(store):
     """Write 1250 keys; ensure list_keys returns them all (not capped at 1000)."""
     for i in range(1250):
@@ -118,6 +124,7 @@ def test_fix2_list_keys_returns_more_than_1000(store):
 
 # ---------- Fix 3: no default admin/secret credentials ----------
 
+
 def test_fix3_init_refuses_without_creds(monkeypatch, tmp_path):
     """`tracecraft init` without --access-key/--secret-key/env must error."""
     monkeypatch.chdir(tmp_path)
@@ -125,13 +132,21 @@ def test_fix3_init_refuses_without_creds(monkeypatch, tmp_path):
     monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
 
     runner = CliRunner()
-    r = runner.invoke(init_cmd, [
-        "--backend", "s3",
-        "--endpoint", "http://localhost:9000",
-        "--bucket", "x",
-        "--project", "p",
-        "--agent", "a",
-    ])
+    r = runner.invoke(
+        init_cmd,
+        [
+            "--backend",
+            "s3",
+            "--endpoint",
+            "http://localhost:9000",
+            "--bucket",
+            "x",
+            "--project",
+            "p",
+            "--agent",
+            "a",
+        ],
+    )
     assert r.exit_code != 0
     assert "credentials required" in r.output.lower()
     # Critically, must NOT have written admin/secret to disk
@@ -145,13 +160,21 @@ def test_fix3_init_reads_aws_env_vars(monkeypatch, tmp_path, s3_env):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
 
     runner = CliRunner()
-    r = runner.invoke(init_cmd, [
-        "--backend", "s3",
-        "--endpoint", MOTO_ENDPOINT,  # moto default
-        "--bucket", BUCKET,
-        "--project", PROJECT,
-        "--agent", "a",
-    ])
+    r = runner.invoke(
+        init_cmd,
+        [
+            "--backend",
+            "s3",
+            "--endpoint",
+            MOTO_ENDPOINT,  # moto default
+            "--bucket",
+            BUCKET,
+            "--project",
+            PROJECT,
+            "--agent",
+            "a",
+        ],
+    )
     assert r.exit_code == 0, r.output
     saved = json.loads((tmp_path / ".tracecraft.json").read_text())
     assert saved["access_key"] == "testing"
@@ -163,6 +186,7 @@ def test_fix3_init_reads_aws_env_vars(monkeypatch, tmp_path, s3_env):
 
 # ---------- Fix 4: .gitignore handling ----------
 
+
 def test_fix4_gitignore_appended_in_git_repo(monkeypatch, tmp_path, s3_env):
     """When cwd is a git repo, init appends .tracecraft.json to .gitignore."""
     (tmp_path / ".git").mkdir()
@@ -171,13 +195,21 @@ def test_fix4_gitignore_appended_in_git_repo(monkeypatch, tmp_path, s3_env):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
 
     runner = CliRunner()
-    r = runner.invoke(init_cmd, [
-        "--backend", "s3",
-        "--endpoint", MOTO_ENDPOINT,
-        "--bucket", BUCKET,
-        "--project", PROJECT,
-        "--agent", "a",
-    ])
+    r = runner.invoke(
+        init_cmd,
+        [
+            "--backend",
+            "s3",
+            "--endpoint",
+            MOTO_ENDPOINT,
+            "--bucket",
+            BUCKET,
+            "--project",
+            PROJECT,
+            "--agent",
+            "a",
+        ],
+    )
     assert r.exit_code == 0, r.output
     gi = (tmp_path / ".gitignore").read_text()
     assert ".tracecraft.json" in gi.splitlines()
@@ -192,13 +224,21 @@ def test_fix4_gitignore_not_duplicated(monkeypatch, tmp_path, s3_env):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
 
     runner = CliRunner()
-    r = runner.invoke(init_cmd, [
-        "--backend", "s3",
-        "--endpoint", MOTO_ENDPOINT,
-        "--bucket", BUCKET,
-        "--project", PROJECT,
-        "--agent", "a",
-    ])
+    r = runner.invoke(
+        init_cmd,
+        [
+            "--backend",
+            "s3",
+            "--endpoint",
+            MOTO_ENDPOINT,
+            "--bucket",
+            BUCKET,
+            "--project",
+            PROJECT,
+            "--agent",
+            "a",
+        ],
+    )
     assert r.exit_code == 0, r.output
     lines = (tmp_path / ".gitignore").read_text().splitlines()
     assert lines.count(".tracecraft.json") == 1
@@ -211,18 +251,27 @@ def test_fix4_no_gitignore_outside_repo(monkeypatch, tmp_path, s3_env):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
 
     runner = CliRunner()
-    r = runner.invoke(init_cmd, [
-        "--backend", "s3",
-        "--endpoint", MOTO_ENDPOINT,
-        "--bucket", BUCKET,
-        "--project", PROJECT,
-        "--agent", "a",
-    ])
+    r = runner.invoke(
+        init_cmd,
+        [
+            "--backend",
+            "s3",
+            "--endpoint",
+            MOTO_ENDPOINT,
+            "--bucket",
+            BUCKET,
+            "--project",
+            PROJECT,
+            "--agent",
+            "a",
+        ],
+    )
     assert r.exit_code == 0, r.output
     assert not (tmp_path / ".gitignore").exists()
 
 
 # ---------- Fix 5: dead scaffolding removed ----------
+
 
 def test_fix5_no_empty_namespace_packages():
     """integrations/ and transport/ packages must not be importable."""
@@ -243,5 +292,5 @@ def test_fix5_pyproject_drops_dead_extras():
     """crewai/langgraph/claude-sdk/all extras must not be declared."""
     repo_root = pathlib.Path(__file__).resolve().parents[2]
     text = (repo_root / "sdk" / "pyproject.toml").read_text()
-    for forbidden in ('crewai = [', 'langgraph = [', 'claude-sdk = [', 'all = ['):
+    for forbidden in ("crewai = [", "langgraph = [", "claude-sdk = [", "all = ["):
         assert forbidden not in text, f"pyproject still declares: {forbidden}"

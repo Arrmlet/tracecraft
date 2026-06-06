@@ -10,14 +10,35 @@ from tracecraft.config import save_config
 
 
 @click.command()
-@click.option("--backend", type=click.Choice(["s3", "hf"]), default="s3", help="Storage backend: s3 or hf (HuggingFace Buckets)")
+@click.option(
+    "--backend",
+    type=click.Choice(["s3", "hf"]),
+    default="s3",
+    help="Storage backend: s3 or hf (HuggingFace Buckets)",
+)
 @click.option("--endpoint", default=None, help="S3 endpoint URL (s3 backend only)")
-@click.option("--bucket", required=True, help="Bucket name (s3) or HF bucket handle e.g. username/my-bucket (hf)")
+@click.option(
+    "--bucket",
+    required=True,
+    help="Bucket name (s3) or HF bucket handle e.g. username/my-bucket (hf)",
+)
 @click.option("--project", required=True, help="Project namespace")
 @click.option("--agent", required=True, help="Agent ID for this session")
-@click.option("--access-key", default=None, envvar="AWS_ACCESS_KEY_ID", help="S3 access key (env: AWS_ACCESS_KEY_ID)")
-@click.option("--secret-key", default=None, envvar="AWS_SECRET_ACCESS_KEY", help="S3 secret key (env: AWS_SECRET_ACCESS_KEY)")
-@click.option("--hf-token", default=None, envvar="HF_TOKEN", help="HuggingFace token (env: HF_TOKEN)")
+@click.option(
+    "--access-key",
+    default=None,
+    envvar="AWS_ACCESS_KEY_ID",
+    help="S3 access key (env: AWS_ACCESS_KEY_ID)",
+)
+@click.option(
+    "--secret-key",
+    default=None,
+    envvar="AWS_SECRET_ACCESS_KEY",
+    help="S3 secret key (env: AWS_SECRET_ACCESS_KEY)",
+)
+@click.option(
+    "--hf-token", default=None, envvar="HF_TOKEN", help="HuggingFace token (env: HF_TOKEN)"
+)
 def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, hf_token):
     """Initialize tracecraft config, create bucket, and register agent."""
     cfg = {
@@ -49,23 +70,24 @@ def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, 
     store.ensure_bucket()
 
     now = datetime.now(timezone.utc).isoformat()
-    store.put_json(f"agents/{agent}.json", {
-        "id": agent,
-        "status": "active",
-        "step": None,
-        "started_at": now,
-        "heartbeat": now,
-        "summary": "Initialized",
-    })
+    store.put_json(
+        f"agents/{agent}.json",
+        {
+            "id": agent,
+            "status": "active",
+            "step": None,
+            "started_at": now,
+            "heartbeat": now,
+            "summary": "Initialized",
+        },
+    )
 
     click.echo(f"Initialized project '{project}' as agent '{agent}'")
     if backend == "s3":
         click.echo(f"Backend: S3  Endpoint: {endpoint}  Bucket: {bucket}")
     else:
         click.echo(f"Backend: HuggingFace Buckets  Bucket: {bucket}")
-    click.echo(
-        "Note: .tracecraft.json contains credentials. Keep it out of version control."
-    )
+    click.echo("Note: .tracecraft.json contains credentials. Keep it out of version control.")
 
 
 def _ensure_gitignore_entry():
@@ -98,9 +120,11 @@ def _get_store(cfg):
     backend = cfg.get("backend", "s3")
     if backend == "hf":
         from tracecraft.hf import HF
+
         return HF(bucket=cfg["bucket"], project=cfg["project"], token=cfg.get("hf_token"))
     else:
         from tracecraft.s3 import S3
+
         return S3(
             endpoint=cfg["endpoint"],
             bucket=cfg["bucket"],

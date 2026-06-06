@@ -114,9 +114,7 @@ def _bucket_keys():
     """Return all keys under PROJECT/ stripped of the project prefix."""
     client = boto3.client("s3")
     resp = client.list_objects_v2(Bucket=BUCKET, Prefix=f"{PROJECT}/")
-    return [
-        obj["Key"][len(PROJECT) + 1 :] for obj in resp.get("Contents", [])
-    ]
+    return [obj["Key"][len(PROJECT) + 1 :] for obj in resp.get("Contents", [])]
 
 
 def _get_meta(session_id):
@@ -256,7 +254,7 @@ def test_session_list_shows_uploaded_session(cli_env):
 
 def test_session_show_tails_concatenated_parts(cli_env):
     runner, cwd, sess, sid = cli_env
-    sess.write_bytes(b'line1\n')
+    sess.write_bytes(b"line1\n")
     runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
     with open(sess, "ab") as f:
         f.write(b"line2\nline3\n")

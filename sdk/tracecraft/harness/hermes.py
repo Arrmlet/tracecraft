@@ -59,7 +59,7 @@ def _decode_content(value):
     """Hermes stores multimodal content as '\\x00json:<json>'; scalars as-is."""
     if isinstance(value, str) and value.startswith(_CONTENT_JSON_PREFIX):
         try:
-            return json.loads(value[len(_CONTENT_JSON_PREFIX):])
+            return json.loads(value[len(_CONTENT_JSON_PREFIX) :])
         except json.JSONDecodeError:
             return value
     return value
@@ -82,9 +82,7 @@ class HermesHarness:
             return []
         conn = _connect_ro(self.db_path)
         try:
-            rows = conn.execute(
-                "SELECT id FROM sessions ORDER BY started_at DESC"
-            ).fetchall()
+            rows = conn.execute("SELECT id FROM sessions ORDER BY started_at DESC").fetchall()
         except sqlite3.Error:
             return []
         finally:

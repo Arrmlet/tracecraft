@@ -10,9 +10,11 @@ def get_store():
 
     if backend == "hf":
         from tracecraft.hf import HF
+
         return HF(bucket=cfg["bucket"], project=cfg["project"], token=cfg.get("hf_token")), cfg
     else:
         from tracecraft.s3 import S3
+
         return S3(
             endpoint=cfg["endpoint"],
             bucket=cfg["bucket"],

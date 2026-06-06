@@ -16,7 +16,9 @@ from pathlib import Path
 from .base import FileTailHarness, Session
 
 
-_ROLLOUT_RE = re.compile(r"rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<id>[A-Za-z0-9_-]+)\.jsonl$")
+_ROLLOUT_RE = re.compile(
+    r"rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(?P<id>[A-Za-z0-9_-]+)\.jsonl$"
+)
 
 
 class CodexHarness(FileTailHarness):

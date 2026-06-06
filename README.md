@@ -172,7 +172,9 @@ tracecraft inbox                          # Read messages
 tracecraft inbox --delete                 # Read and clear
 
 tracecraft claim <step-id>                # Claim a step (atomic)
-tracecraft complete <step-id> [--note X]  # Mark done + handoff note
+tracecraft complete <step-id> [--note X] [--to AGENT] [--next-action X]
+                                          [--blocked|--needs-review]
+                                          [--changed-files-from-git]  # Structured handoff record
 tracecraft step-status <step-id>          # Check status
 tracecraft wait-for <step-ids...>         # Block until complete (default 300s timeout)
 
