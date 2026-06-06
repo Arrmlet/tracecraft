@@ -40,6 +40,5 @@ class ClaudeCodeHarness(FileTailHarness):
         if not pdir.is_dir():
             return []
         return [
-            Session(path=jsonl, session_id=jsonl.stem, cwd=cwd)
-            for jsonl in pdir.glob("*.jsonl")
+            Session(path=jsonl, session_id=jsonl.stem, cwd=cwd) for jsonl in pdir.glob("*.jsonl")
         ]

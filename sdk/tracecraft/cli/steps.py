@@ -21,7 +21,9 @@ def _git_changed_files() -> list[str]:
     try:
         out = subprocess.run(
             ["git", "diff", "--name-only", "HEAD"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if out.returncode != 0:
             return []
@@ -51,11 +53,14 @@ def claim(step_id):
         owner = existing.get("agent", "unknown")
         raise click.ClickException(f"Step {step_id} already claimed by {owner}")
 
-    store.put_json(f"steps/{sid}/status.json", {
-        "status": "in_progress",
-        "agent": agent,
-        "started_at": now,
-    })
+    store.put_json(
+        f"steps/{sid}/status.json",
+        {
+            "status": "in_progress",
+            "agent": agent,
+            "started_at": now,
+        },
+    )
     click.echo(f"Claimed step {step_id} as {agent}")
 
 
@@ -65,7 +70,9 @@ def claim(step_id):
 @click.option("--to", "next_agent", default=None, help="Agent this step hands off to")
 @click.option("--next-action", default=None, help="One line: what the next agent should do first")
 @click.option("--blocked", is_flag=True, help="Mark the step blocked rather than complete")
-@click.option("--needs-review", is_flag=True, help="Mark the step as needing review rather than complete")
+@click.option(
+    "--needs-review", is_flag=True, help="Mark the step as needing review rather than complete"
+)
 @click.option(
     "--changed-files-from-git",
     is_flag=True,
@@ -117,7 +124,9 @@ def complete(step_id, note, next_agent, next_action, blocked, needs_review, chan
         handoff["changed_files"] = _git_changed_files()
     store.put_json(f"steps/{sid}/handoff.json", handoff)
 
-    label = {"complete": "Completed", "blocked": "Blocked", "needs_review": "Needs review on"}[state]
+    label = {"complete": "Completed", "blocked": "Blocked", "needs_review": "Needs review on"}[
+        state
+    ]
     msg = f"{label} step {step_id}"
     if next_agent:
         msg += f" → handed off to {next_agent}"

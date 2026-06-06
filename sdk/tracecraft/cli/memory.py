@@ -33,11 +33,14 @@ def memory_set(key, value):
         raise click.ClickException("Key cannot be empty")
     store, cfg = get_store()
     now = datetime.now(timezone.utc).isoformat()
-    store.put_json(_key_to_path(key), {
-        "value": value,
-        "set_by": cfg["agent_id"],
-        "set_at": now,
-    })
+    store.put_json(
+        _key_to_path(key),
+        {
+            "value": value,
+            "set_by": cfg["agent_id"],
+            "set_at": now,
+        },
+    )
     click.echo(f"Set {key} = {value}")
 
 

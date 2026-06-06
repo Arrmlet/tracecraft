@@ -114,7 +114,9 @@ def session():
     default=None,
     help="Project directory the session ran in (claude-code only). Defaults to $PWD.",
 )
-@click.option("--no-redact", is_flag=True, help="Skip redaction. Use only on fully-trusted buckets.")
+@click.option(
+    "--no-redact", is_flag=True, help="Skip redaction. Use only on fully-trusted buckets."
+)
 @click.option(
     "--min-bytes",
     default=1,
@@ -156,9 +158,7 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
     # authoritative — read_new() returns the real consumed cursor below.
     cur_size = harness.size(sess)
     if cur_size - cursor < min_bytes:
-        click.echo(
-            f"nothing new: session={sess.session_id} cursor={cursor:,} size={cur_size:,}"
-        )
+        click.echo(f"nothing new: session={sess.session_id} cursor={cursor:,} size={cur_size:,}")
         return
 
     # 2. Read everything new since `cursor`, race-free: read_new returns the
@@ -286,10 +286,10 @@ def list_(harness_filter, limit, sort_by):
         sid = m.get("session_id", "?")
         short = sid[:8] + ("…" if len(sid) > 8 else "")
         click.echo(
-            f"{m.get('harness','?'):<14} {short:<16} "
-            f"{m.get('total_uploaded_bytes',0):>12,} "
+            f"{m.get('harness', '?'):<14} {short:<16} "
+            f"{m.get('total_uploaded_bytes', 0):>12,} "
             f"{len(m.get('parts', [])):>6} "
-            f"{m.get('last_uploaded_at','-')[:24]:<25}"
+            f"{m.get('last_uploaded_at', '-')[:24]:<25}"
         )
 
 
@@ -309,7 +309,9 @@ def show(session_id, tail):
     store, _ = get_store()
 
     # Find which harness this session lives under (search every harness folder).
-    all_meta_keys = [k for k in store.list_keys("sessions/") if k.endswith(f"/{session_id}/meta.json")]
+    all_meta_keys = [
+        k for k in store.list_keys("sessions/") if k.endswith(f"/{session_id}/meta.json")
+    ]
     if not all_meta_keys:
         raise click.ClickException(f"session not found: {session_id}")
     meta_key = all_meta_keys[0]
@@ -321,9 +323,7 @@ def show(session_id, tail):
 
     # Fetch all parts (in seq order), concatenate, print last N lines.
     prefix = meta_key[: -len("meta.json")]
-    part_keys = sorted(
-        k for k in store.list_keys(prefix) if PART_RE.search(k.rsplit("/", 1)[-1])
-    )
+    part_keys = sorted(k for k in store.list_keys(prefix) if PART_RE.search(k.rsplit("/", 1)[-1]))
     body = bytearray()
     for k in part_keys:
         with tempfile.NamedTemporaryFile(delete=False) as tf:
@@ -365,9 +365,7 @@ def stop(session_id):
 
     # Best-effort: mark ended_at in meta if a meta exists.
     store, _ = get_store()
-    meta_keys = [
-        k for k in store.list_keys("sessions/") if k.endswith(f"/{session_id}/meta.json")
-    ]
+    meta_keys = [k for k in store.list_keys("sessions/") if k.endswith(f"/{session_id}/meta.json")]
     marked = False
     if meta_keys:
         meta = store.get_json(meta_keys[0]) or {}
@@ -377,6 +375,5 @@ def stop(session_id):
             marked = True
 
     click.echo(
-        f"stopped session={session_id}  "
-        f"state_cleared={had_state}  meta_marked_ended={marked}"
+        f"stopped session={session_id}  state_cleared={had_state}  meta_marked_ended={marked}"
     )

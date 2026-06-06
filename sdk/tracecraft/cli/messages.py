@@ -21,12 +21,15 @@ def send(recipient, message):
     now = datetime.now(timezone.utc).isoformat()
 
     key = f"messages/{recipient}/{ts}_{sender}.json"
-    store.put_json(key, {
-        "from": sender,
-        "to": recipient,
-        "message": message,
-        "sent_at": now,
-    })
+    store.put_json(
+        key,
+        {
+            "from": sender,
+            "to": recipient,
+            "message": message,
+            "sent_at": now,
+        },
+    )
     click.echo(f"Sent to {recipient}: {message}")
 
 
