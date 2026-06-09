@@ -56,6 +56,11 @@ pivot lives in `plans/server-archive/` for reference only — nothing in the SDK
   many isolated projects.
 - **No server, no daemon**: each CLI call is stateless; state lives on the bucket.
 - **No vendor lock-in**: AWS, R2, MinIO, B2, Wasabi, HuggingFace all work today.
+- **Claim/status crash-window invariant**: `claim.json` (atomic) and `status.json` are
+  two separate writes; a crash between them leaves a claim with no status. Readers MUST
+  treat "claim.json exists, status.json missing" as `in_progress` by the claiming agent —
+  the claim is the authoritative write (`step-status` and `wait-for` implement this via
+  `_effective_status` in `cli/steps.py`).
 
 ## Known gaps (May 2026)
 
