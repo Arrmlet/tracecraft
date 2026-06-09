@@ -8,12 +8,14 @@ from tracecraft.config import load_config
 
 
 class HF:
-    def __init__(self, bucket, project, token=None):
+    def __init__(self, bucket, project, token=None, private=True):
         from huggingface_hub import HfFileSystem
 
         self.fs = HfFileSystem(token=token)
         self.bucket = bucket  # e.g. "username/my-bucket"
         self.project = project
+        self.token = token
+        self.private = private  # safe default: private (these hold internal traces)
         self.base = f"hf://buckets/{bucket}"
 
     @classmethod
@@ -104,6 +106,23 @@ class HF:
             raise click.ClickException(f"HF download failed: {e}")
 
     def ensure_bucket(self):
-        # HF buckets are created via CLI or web — verify by checking exists or listing
-        # Empty buckets fail on ls(), so we just pass and let first write validate access
-        pass
+        """Create the HF bucket if it doesn't exist (private by default).
+
+        Previously a no-op, which made `init` against a brand-new bucket fail with a
+        cryptic error on the first write (issue #7). HF buckets default to *public*
+        on creation, which is a privacy footgun for a tool that stores internal
+        memory/transcripts (issue #8) — so we create them private unless the caller
+        opts out via `private=False`.
+        """
+        try:
+            from huggingface_hub import HfApi
+
+            HfApi(token=self.token).create_bucket(self.bucket, private=self.private, exist_ok=True)
+        except Exception as e:
+            # Fall back to the old behavior: let the first write validate access,
+            # but surface a useful hint instead of a cryptic one.
+            raise click.ClickException(
+                f"Could not ensure HF bucket '{self.bucket}' exists: {e}\n"
+                f"Create it first at https://huggingface.co/new-bucket (set it Private), "
+                f"or check your --hf-token has write access."
+            )
