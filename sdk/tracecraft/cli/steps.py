@@ -200,19 +200,31 @@ def wait_for(step_ids, timeout):
 
     while time.time() < deadline:
         all_done = True
+        needs_review = []
         for step_id in step_ids:
             sid = step_id.lower().replace(".", "-")
-            status, _ = _effective_status(store, sid)
+            status, agent = _effective_status(store, sid)
+            if status == "blocked":
+                # A blocked step won't complete on its own — failing fast beats
+                # spinning until the full timeout.
+                raise click.ClickException(
+                    f"Step {step_id} is blocked (agent: {agent}) — it will not "
+                    f"complete without intervention. Resolve it and re-run wait-for."
+                )
+            if status == "needs_review":
+                needs_review.append(step_id)
             if status != "complete":
                 all_done = False
-                break
 
         if all_done:
             click.echo(f"All steps complete: {', '.join(step_ids)}")
             return
 
         remaining = int(deadline - time.time())
-        click.echo(f"Waiting... ({remaining}s remaining)", err=True)
+        progress = f"Waiting... ({remaining}s remaining)"
+        if needs_review:
+            progress += f" — needs review: {', '.join(needs_review)}"
+        click.echo(progress, err=True)
         time.sleep(5)
 
     raise click.ClickException(
