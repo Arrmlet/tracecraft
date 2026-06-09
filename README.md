@@ -29,6 +29,8 @@ docker run -d -p 9000:9000 \
   minio/minio server /data
 ```
 
+(From a checkout, `docker compose -f docker-compose.dev.yml up -d` does the same and adds the MinIO console on `:9001`.)
+
 Register two agents against the same project. Credentials come from the standard AWS env vars, so they never land in your shell history:
 
 ```bash
