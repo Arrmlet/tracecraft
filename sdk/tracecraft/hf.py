@@ -8,12 +8,14 @@ from tracecraft.config import load_config
 
 
 class HF:
-    def __init__(self, bucket, project, token=None):
+    def __init__(self, bucket, project, token=None, private=True):
         from huggingface_hub import HfFileSystem
 
         self.fs = HfFileSystem(token=token)
         self.bucket = bucket  # e.g. "username/my-bucket"
         self.project = project
+        self.token = token
+        self.private = private  # safe default: private (these hold internal traces)
         self.base = f"hf://buckets/{bucket}"
 
     @classmethod
@@ -27,6 +29,24 @@ class HF:
 
     def _path(self, key):
         return f"{self.base}/{self.project}/{key}"
+
+    def _raise_write_error(self, e):
+        """Translate raw HfFileSystem write errors into actionable ones.
+
+        A put against a bucket that doesn't exist surfaces as a cryptic
+        'repository and revision' / 404 resolution error from HfFileSystem —
+        name the bucket and say what to do instead.
+        """
+        msg = str(e)
+        if isinstance(e, FileNotFoundError) or (
+            "Repository Not Found" in msg or "repository and revision" in msg or "404" in msg
+        ):
+            raise click.ClickException(
+                f"HF write failed: bucket '{self.bucket}' was not found.\n"
+                f"Run `tracecraft init --backend hf --bucket {self.bucket} ...` to create it, "
+                f"and check the bucket handle is 'username/bucket-name'."
+            )
+        raise click.ClickException(f"HF write failed: {e}")
 
     def put_json(self, key, data, if_none_match=False):
         try:
@@ -45,7 +65,7 @@ class HF:
 
             if isinstance(e, PreconditionFailed):
                 raise
-            raise click.ClickException(f"HF put failed: {e}")
+            self._raise_write_error(e)
 
     def get_json(self, key):
         try:
@@ -80,7 +100,19 @@ class HF:
     def exists(self, key):
         try:
             return self.fs.exists(self._path(key))
-        except Exception:
+        except FileNotFoundError:
+            return False
+        except Exception as e:
+            # "Not found" is a legitimate False; "unauthorized" is not — swallowing
+            # it makes a bad token look like an empty bucket (and lets a best-effort
+            # claim race past its check-then-write guard).
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in (401, 403) or "unauthorized" in str(e).lower():
+                raise click.ClickException(
+                    f"HF auth error while checking '{key}': {e}\n"
+                    f"Check that your token (--hf-token / HF_TOKEN) has read access "
+                    f"to '{self.bucket}'."
+                )
             return False
 
     def delete(self, key):
@@ -95,7 +127,7 @@ class HF:
         try:
             self.fs.put(local_path, self._path(key))
         except Exception as e:
-            raise click.ClickException(f"HF upload failed: {e}")
+            self._raise_write_error(e)
 
     def get_file(self, key, local_path):
         try:
@@ -104,6 +136,38 @@ class HF:
             raise click.ClickException(f"HF download failed: {e}")
 
     def ensure_bucket(self):
-        # HF buckets are created via CLI or web — verify by checking exists or listing
-        # Empty buckets fail on ls(), so we just pass and let first write validate access
-        pass
+        """Create the HF bucket if it doesn't exist (private by default).
+
+        Previously a no-op, which made `init` against a brand-new bucket fail with a
+        cryptic error on the first write (issue #7). HF buckets default to *public*
+        on creation, which is a privacy footgun for a tool that stores internal
+        memory/transcripts (issue #8) — so we create them private unless the caller
+        opts out via `private=False`.
+        """
+        try:
+            from huggingface_hub import HfApi
+
+            HfApi(token=self.token).create_bucket(self.bucket, private=self.private, exist_ok=True)
+        except Exception as e:
+            # Fall back to the old behavior: let the first write validate access,
+            # but surface a useful hint instead of a cryptic one.
+            raise click.ClickException(
+                f"Could not ensure HF bucket '{self.bucket}' exists: {e}\n"
+                f"Create it first at https://huggingface.co/new-bucket (set it Private), "
+                f"or check your --hf-token has write access."
+            )
+
+    def bucket_privacy(self):
+        """Return the bucket's *actual* visibility: True=private, False=public,
+        None if it can't be determined (network error, no permission).
+
+        Read back from bucket_info() rather than assumed from the flag we passed —
+        create_bucket(exist_ok=True) silently keeps a pre-existing bucket's
+        visibility, so the flag and reality can disagree.
+        """
+        try:
+            from huggingface_hub import HfApi
+
+            return bool(HfApi(token=self.token).bucket_info(self.bucket).private)
+        except Exception:
+            return None

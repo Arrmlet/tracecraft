@@ -1,6 +1,5 @@
 """tracecraft init — configure and register agent."""
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,7 +38,14 @@ from tracecraft.config import save_config
 @click.option(
     "--hf-token", default=None, envvar="HF_TOKEN", help="HuggingFace token (env: HF_TOKEN)"
 )
-def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, hf_token):
+@click.option(
+    "--private/--public",
+    "private",
+    default=True,
+    help="Create the bucket private (default) or public. HF only. "
+    "Internal memory/transcripts should stay private.",
+)
+def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, hf_token, private):
     """Initialize tracecraft config, create bucket, and register agent."""
     cfg = {
         "backend": backend,
@@ -66,7 +72,7 @@ def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, 
     save_config(cfg)
     _ensure_gitignore_entry()
 
-    store = _get_store(cfg)
+    store = _get_store(cfg, private=private)
     store.ensure_bucket()
 
     now = datetime.now(timezone.utc).isoformat()
@@ -86,7 +92,39 @@ def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, 
     if backend == "s3":
         click.echo(f"Backend: S3  Endpoint: {endpoint}  Bucket: {bucket}")
     else:
-        click.echo(f"Backend: HuggingFace Buckets  Bucket: {bucket}")
+        # Report the bucket's *actual* visibility, read back from the Hub —
+        # create_bucket(exist_ok=True) keeps a pre-existing bucket's setting,
+        # so the --private/--public flag and reality can disagree.
+        actual_private = store.bucket_privacy()
+        if actual_private is None:
+            visibility = "visibility unknown"
+        else:
+            visibility = "private" if actual_private else "PUBLIC"
+        click.echo(f"Backend: HuggingFace Buckets  Bucket: {bucket} ({visibility})")
+        if actual_private is False and private:
+            # The bucket pre-existed as public; we asked for private but
+            # create_bucket(exist_ok=True) never changes an existing bucket.
+            click.echo(
+                "\n"
+                "  WARNING: bucket already exists and is PUBLIC.\n"
+                f"  Everything tracecraft writes to '{bucket}' — shared memory, messages,\n"
+                "  handoffs, and mirrored session transcripts — will be publicly visible\n"
+                "  on the Hub. huggingface_hub has no update_bucket, so visibility cannot\n"
+                "  be flipped in place: the only remedy is to delete the bucket and\n"
+                "  re-run init so tracecraft recreates it private.\n"
+                "  If public was intentional, pass --public to silence this warning.\n",
+                err=True,
+            )
+        # Be honest about the core-promise gap on this backend (see hf.py put_json):
+        # HF has no conditional-write, so atomic claims are best-effort there.
+        click.echo(
+            "Note: HuggingFace buckets have no conditional-write primitive, so "
+            "`tracecraft claim` is best-effort (racy) here — two agents can both think "
+            "they won. For safe atomic claims, use an S3-compatible backend (AWS, R2, "
+            "MinIO, B2, Wasabi). Memory, messaging, handoffs, and session mirroring are "
+            "unaffected.",
+            err=True,
+        )
     click.echo("Note: .tracecraft.json contains credentials. Keep it out of version control.")
 
 
@@ -115,13 +153,18 @@ def _ensure_gitignore_entry():
         )
 
 
-def _get_store(cfg):
+def _get_store(cfg, private=True):
     """Create the right storage backend from config."""
     backend = cfg.get("backend", "s3")
     if backend == "hf":
         from tracecraft.hf import HF
 
-        return HF(bucket=cfg["bucket"], project=cfg["project"], token=cfg.get("hf_token"))
+        return HF(
+            bucket=cfg["bucket"],
+            project=cfg["project"],
+            token=cfg.get("hf_token"),
+            private=private,
+        )
     else:
         from tracecraft.s3 import S3
 

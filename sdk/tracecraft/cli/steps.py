@@ -62,6 +62,15 @@ def claim(step_id):
         },
     )
     click.echo(f"Claimed step {step_id} as {agent}")
+    if cfg.get("backend") == "hf":
+        # The claim is best-effort on HF (no conditional-write); don't let the
+        # success message imply the race was atomically arbitrated.
+        click.echo(
+            "warning: claims on the HuggingFace backend are best-effort (racy) — "
+            "another agent may also believe it won this step. Use an S3-compatible "
+            "backend for atomic claims.",
+            err=True,
+        )
 
 
 @click.command()
@@ -78,7 +87,14 @@ def claim(step_id):
     is_flag=True,
     help="Record files changed (from `git diff`), so the next agent knows what moved. No-op outside a git repo.",
 )
-def complete(step_id, note, next_agent, next_action, blocked, needs_review, changed_files_from_git):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Complete a step claimed by a different agent (e.g. the claim-holder crashed).",
+)
+def complete(
+    step_id, note, next_agent, next_action, blocked, needs_review, changed_files_from_git, force
+):
     """Mark a step complete (or blocked / needs-review) and write a handoff record.
 
     The handoff record is what the next agent sees instead of a shared
@@ -94,6 +110,15 @@ def complete(step_id, note, next_agent, next_action, blocked, needs_review, chan
     agent = cfg["agent_id"]
     sid = step_id.lower().replace(".", "-")
     now = datetime.now(timezone.utc).isoformat()
+
+    # A step belongs to whoever claimed it — without this check any agent
+    # could mark any step complete and silently steal/clobber someone's work.
+    claim_doc = store.get_json(f"steps/{sid}/claim.json")
+    if claim_doc and claim_doc.get("agent") not in (None, agent) and not force:
+        raise click.ClickException(
+            f"Step {step_id} is claimed by '{claim_doc['agent']}', not '{agent}'. "
+            f"Pass --force to complete it anyway (e.g. if the claim-holder crashed)."
+        )
 
     state = "blocked" if blocked else "needs_review" if needs_review else "complete"
 
@@ -135,19 +160,34 @@ def complete(step_id, note, next_agent, next_action, blocked, needs_review, chan
     click.echo(msg)
 
 
+def _effective_status(store, sid):
+    """Resolve a step's status, tolerating the claim/status crash window.
+
+    claim.json (atomic) and status.json are two separate writes; a crash
+    between them leaves a claim with no status. Readers treat that state as
+    in_progress by the claiming agent — the claim is the authoritative write.
+    Returns (status, agent); status is 'pending' when neither file exists.
+    """
+    data = store.get_json(f"steps/{sid}/status.json")
+    if data is not None:
+        return data.get("status", "unknown"), data.get("agent", "?")
+    claim_doc = store.get_json(f"steps/{sid}/claim.json")
+    if claim_doc is not None:
+        return "in_progress", claim_doc.get("agent", "?")
+    return "pending", None
+
+
 @click.command()
 @click.argument("step_id")
 def step_status(step_id):
     """Check the status of a step."""
     store, _ = get_store()
     sid = step_id.lower().replace(".", "-")
-    data = store.get_json(f"steps/{sid}/status.json")
-    if data is None:
-        click.echo(f"{step_id}: pending")
-        return
-    status = data.get("status", "unknown")
-    agent = data.get("agent", "?")
-    click.echo(f"{step_id}: {status} (agent: {agent})")
+    status, agent = _effective_status(store, sid)
+    if agent is None:
+        click.echo(f"{step_id}: {status}")
+    else:
+        click.echo(f"{step_id}: {status} (agent: {agent})")
 
 
 @click.command()
@@ -160,19 +200,31 @@ def wait_for(step_ids, timeout):
 
     while time.time() < deadline:
         all_done = True
+        needs_review = []
         for step_id in step_ids:
             sid = step_id.lower().replace(".", "-")
-            data = store.get_json(f"steps/{sid}/status.json")
-            if data is None or data.get("status") != "complete":
+            status, agent = _effective_status(store, sid)
+            if status == "blocked":
+                # A blocked step won't complete on its own — failing fast beats
+                # spinning until the full timeout.
+                raise click.ClickException(
+                    f"Step {step_id} is blocked (agent: {agent}) — it will not "
+                    f"complete without intervention. Resolve it and re-run wait-for."
+                )
+            if status == "needs_review":
+                needs_review.append(step_id)
+            if status != "complete":
                 all_done = False
-                break
 
         if all_done:
             click.echo(f"All steps complete: {', '.join(step_ids)}")
             return
 
         remaining = int(deadline - time.time())
-        click.echo(f"Waiting... ({remaining}s remaining)", err=True)
+        progress = f"Waiting... ({remaining}s remaining)"
+        if needs_review:
+            progress += f" — needs review: {', '.join(needs_review)}"
+        click.echo(progress, err=True)
         time.sleep(5)
 
     raise click.ClickException(

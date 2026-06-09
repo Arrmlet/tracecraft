@@ -20,8 +20,6 @@ What we prove here:
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 
 import boto3
 import pytest

@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
 [![Python](https://img.shields.io/pypi/pyversions/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://github.com/Arrmlet/tracecraft/actions/workflows/test.yml/badge.svg)](https://github.com/Arrmlet/tracecraft/actions/workflows/test.yml)
+[![CI](https://github.com/Arrmlet/tracecraft/actions/workflows/ci.yml/badge.svg)](https://github.com/Arrmlet/tracecraft/actions/workflows/ci.yml)
 
 **Tracecraft is a CLI coordination layer for multi-agent AI systems** — shared **memory**, a **mailbox**, atomic task **claims**, **handoffs**, and **artifacts**, plus mirrored **session transcripts**, all stored as plain JSON in any **S3** or **HuggingFace** bucket. No server. No database. No SDK lock-in.
 
@@ -29,19 +29,24 @@ docker run -d -p 9000:9000 \
   minio/minio server /data
 ```
 
-Register two agents against the same project:
+(From a checkout, `docker compose -f docker-compose.dev.yml up -d` does the same and adds the MinIO console on `:9001`.)
+
+Register two agents against the same project. Credentials come from the standard AWS env vars, so they never land in your shell history:
 
 ```bash
+export AWS_ACCESS_KEY_ID=admin
+export AWS_SECRET_ACCESS_KEY=admin123456
+
 # Terminal 1
 tracecraft init --project demo --agent designer \
-  --endpoint http://localhost:9000 --bucket tracecraft \
-  --access-key admin --secret-key admin123456
+  --endpoint http://localhost:9000 --bucket tracecraft
 
 # Terminal 2 — same flags, --agent developer
 tracecraft init --project demo --agent developer \
-  --endpoint http://localhost:9000 --bucket tracecraft \
-  --access-key admin --secret-key admin123456
+  --endpoint http://localhost:9000 --bucket tracecraft
 ```
+
+`init` writes the config to `.tracecraft.json` with mode `600` and auto-adds it to `.gitignore` when you're in a git repo.
 
 Now the core move — **two agents cannot grab the same work**, with no lock service and no server to run:
 
@@ -96,16 +101,39 @@ tracecraft send _broadcast "v1 cut at 3pm, wrap your tasks"
 
 ---
 
-## Coordination + reasoning in one bucket
+## Why not LangGraph / Redis / message queues?
+
+- **Frameworks (LangGraph, CrewAI, AutoGen)** orchestrate agents *inside one process*. Tracecraft coordinates *any* processes across machines — different harnesses, different clouds, different teams — through storage they already have.
+- **Redis / Postgres / a queue** means operating a server: provisioning, auth, uptime, backups. A bucket is zero infra, and every state change is a browsable JSON file — you get an audit trail for free just by opening the bucket.
+- **A2A / MCP** are live wire protocols between *running* agents. Tracecraft is durable state for agents that aren't running at the same time — one agent finishes Tuesday, the next picks up the handoff Wednesday.
+
+## Status & limitations
+
+Tracecraft is **pre-alpha**. Honest sharp edges, as of now:
+
+- **No TTL on claims** — a crashed claim-holder keeps the lock until someone runs `complete --force`.
+- **Heartbeat isn't refreshed** — `agents` shows who registered, not who's alive right now.
+- **HF claims are best-effort** — HuggingFace Buckets have no conditional write, so atomic claims need an S3-compatible backend.
+
+Open issues and roadmap → [github.com/Arrmlet/tracecraft/issues](https://github.com/Arrmlet/tracecraft/issues)
+
+---
+
+## Session mirroring
 
 Most coordination tools store the *events* — who claimed what, who messaged whom. Tracecraft stores those **and** each agent's full reasoning, by mirroring coding-agent session transcripts into the same bucket. When a run goes sideways, one `tracecraft session show` gives you the handoffs **and** the chain of thought behind them — same place, same JSON, no second system to wire up.
 
 ```bash
-tracecraft session mirror --harness claude-code   # tail this session into the bucket
-tracecraft session show <id> --tail 50            # read coordination + reasoning together
+tracecraft session mirror --harness claude-code   # upload this session's new bytes
+tracecraft session list                           # browse mirrored sessions
+tracecraft session show <id> --tail 50            # replay: meta + last N transcript lines
+tracecraft session stop <id>                      # clear local cursor, mark session ended
 ```
 
-Works with **Claude Code, Codex, OpenClaw, and Hermes**. Source transcripts are never modified; secret-shape redaction (AWS / Anthropic / OpenAI / HF / GitHub / Slack token patterns) is on by default and counted in metadata.
+- **Four harnesses** — `claude-code`, `codex`, `openclaw`, `hermes`. Anything else can mirror by writing JSONL to the same layout.
+- **Incremental cursor uploads** — `mirror` keeps a per-session byte offset and uploads only what's new as numbered parts, so re-running it from a cron or hook is safe and cheap; a run with nothing new is a no-op. The part sequence is derived from the bucket, so it even survives losing the local state file.
+- **Redaction on by default** — AWS / Anthropic / OpenAI / HF / GitHub / Slack token shapes are scrubbed before upload, with per-pattern match counts recorded in the session's `meta.json` (pass `--no-redact` to opt out). Source transcripts are never modified.
+- **Replay** — `session show <id> --tail N` concatenates the uploaded parts and prints the last N transcript lines next to the session metadata.
 
 Harness matrix, storage formats, and redaction details → **[docs/session-mirror.md](docs/session-mirror.md)**
 
@@ -144,6 +172,8 @@ Bring your own bucket — no vendor lock-in:
 | Cloudflare R2 | `--endpoint https://<acct>.r2.cloudflarestorage.com` | zero egress fees |
 | Backblaze B2 / Wasabi | S3-compatible endpoint | |
 | HuggingFace Buckets | `--backend hf --bucket user/name` | browsable on the Hub; `pip install tracecraft-ai[huggingface]` |
+
+**HuggingFace privacy:** `init` creates the bucket **private by default** (pass `--public` to opt out) and prints the bucket's *actual* visibility, read back from the Hub — e.g. `Backend: HuggingFace Buckets  Bucket: user/x (private)`. If the bucket already exists as public and you didn't ask for that, init warns loudly: coordination data and mirrored transcripts would be publicly visible. Visibility can't be flipped after creation (`huggingface_hub` has no `update_bucket`) — the only way to change it is delete + recreate.
 
 ---
 
@@ -196,6 +226,19 @@ TRACECRAFT_AGENT=developer tracecraft inbox
 ```
 
 </details>
+
+---
+
+## Python API
+
+The CLI is the stable interface; for code that wants direct bucket access, the store factory is the escape hatch:
+
+```python
+from tracecraft.store import get_store
+
+store, cfg = get_store()  # reads .tracecraft.json like the CLI does
+store.put_json("memory/build/status.json", {"value": "passing", "set_by": cfg["agent_id"]})
+```
 
 ---
 
