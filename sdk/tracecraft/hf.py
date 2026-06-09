@@ -100,7 +100,19 @@ class HF:
     def exists(self, key):
         try:
             return self.fs.exists(self._path(key))
-        except Exception:
+        except FileNotFoundError:
+            return False
+        except Exception as e:
+            # "Not found" is a legitimate False; "unauthorized" is not — swallowing
+            # it makes a bad token look like an empty bucket (and lets a best-effort
+            # claim race past its check-then-write guard).
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in (401, 403) or "unauthorized" in str(e).lower():
+                raise click.ClickException(
+                    f"HF auth error while checking '{key}': {e}\n"
+                    f"Check that your token (--hf-token / HF_TOKEN) has read access "
+                    f"to '{self.bucket}'."
+                )
             return False
 
     def delete(self, key):
