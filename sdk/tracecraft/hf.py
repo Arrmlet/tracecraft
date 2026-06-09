@@ -30,6 +30,24 @@ class HF:
     def _path(self, key):
         return f"{self.base}/{self.project}/{key}"
 
+    def _raise_write_error(self, e):
+        """Translate raw HfFileSystem write errors into actionable ones.
+
+        A put against a bucket that doesn't exist surfaces as a cryptic
+        'repository and revision' / 404 resolution error from HfFileSystem —
+        name the bucket and say what to do instead.
+        """
+        msg = str(e)
+        if isinstance(e, FileNotFoundError) or (
+            "Repository Not Found" in msg or "repository and revision" in msg or "404" in msg
+        ):
+            raise click.ClickException(
+                f"HF write failed: bucket '{self.bucket}' was not found.\n"
+                f"Run `tracecraft init --backend hf --bucket {self.bucket} ...` to create it, "
+                f"and check the bucket handle is 'username/bucket-name'."
+            )
+        raise click.ClickException(f"HF write failed: {e}")
+
     def put_json(self, key, data, if_none_match=False):
         try:
             path = self._path(key)
@@ -47,7 +65,7 @@ class HF:
 
             if isinstance(e, PreconditionFailed):
                 raise
-            raise click.ClickException(f"HF put failed: {e}")
+            self._raise_write_error(e)
 
     def get_json(self, key):
         try:
@@ -97,7 +115,7 @@ class HF:
         try:
             self.fs.put(local_path, self._path(key))
         except Exception as e:
-            raise click.ClickException(f"HF upload failed: {e}")
+            self._raise_write_error(e)
 
     def get_file(self, key, local_path):
         try:
