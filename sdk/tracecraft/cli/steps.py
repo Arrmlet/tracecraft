@@ -78,7 +78,14 @@ def claim(step_id):
     is_flag=True,
     help="Record files changed (from `git diff`), so the next agent knows what moved. No-op outside a git repo.",
 )
-def complete(step_id, note, next_agent, next_action, blocked, needs_review, changed_files_from_git):
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Complete a step claimed by a different agent (e.g. the claim-holder crashed).",
+)
+def complete(
+    step_id, note, next_agent, next_action, blocked, needs_review, changed_files_from_git, force
+):
     """Mark a step complete (or blocked / needs-review) and write a handoff record.
 
     The handoff record is what the next agent sees instead of a shared
@@ -94,6 +101,15 @@ def complete(step_id, note, next_agent, next_action, blocked, needs_review, chan
     agent = cfg["agent_id"]
     sid = step_id.lower().replace(".", "-")
     now = datetime.now(timezone.utc).isoformat()
+
+    # A step belongs to whoever claimed it — without this check any agent
+    # could mark any step complete and silently steal/clobber someone's work.
+    claim_doc = store.get_json(f"steps/{sid}/claim.json")
+    if claim_doc and claim_doc.get("agent") not in (None, agent) and not force:
+        raise click.ClickException(
+            f"Step {step_id} is claimed by '{claim_doc['agent']}', not '{agent}'. "
+            f"Pass --force to complete it anyway (e.g. if the claim-holder crashed)."
+        )
 
     state = "blocked" if blocked else "needs_review" if needs_review else "complete"
 
