@@ -126,3 +126,18 @@ class HF:
                 f"Create it first at https://huggingface.co/new-bucket (set it Private), "
                 f"or check your --hf-token has write access."
             )
+
+    def bucket_privacy(self):
+        """Return the bucket's *actual* visibility: True=private, False=public,
+        None if it can't be determined (network error, no permission).
+
+        Read back from bucket_info() rather than assumed from the flag we passed —
+        create_bucket(exist_ok=True) silently keeps a pre-existing bucket's
+        visibility, so the flag and reality can disagree.
+        """
+        try:
+            from huggingface_hub import HfApi
+
+            return bool(HfApi(token=self.token).bucket_info(self.bucket).private)
+        except Exception:
+            return None
