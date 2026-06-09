@@ -1,2 +1,0 @@
-{"endpoint": "http://localhost:9100", "host": "Volodymyrs-MacBook-Pro.local", "senders": 32, "per_sender": 30, "scheme": "old_whole_second", "sent": 960, "delivered_keys": 32, "distinct_messages": 32, "lost": 928, "errors": 0}
-{"endpoint": "http://localhost:9100", "host": "Volodymyrs-MacBook-Pro.local", "senders": 32, "per_sender": 30, "scheme": "new_ns_uuid", "sent": 960, "delivered_keys": 960, "distinct_messages": 960, "lost": 0, "errors": 0}
