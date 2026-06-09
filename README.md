@@ -99,6 +99,24 @@ tracecraft send _broadcast "v1 cut at 3pm, wrap your tasks"
 
 ---
 
+## Why not LangGraph / Redis / message queues?
+
+- **Frameworks (LangGraph, CrewAI, AutoGen)** orchestrate agents *inside one process*. Tracecraft coordinates *any* processes across machines — different harnesses, different clouds, different teams — through storage they already have.
+- **Redis / Postgres / a queue** means operating a server: provisioning, auth, uptime, backups. A bucket is zero infra, and every state change is a browsable JSON file — you get an audit trail for free just by opening the bucket.
+- **A2A / MCP** are live wire protocols between *running* agents. Tracecraft is durable state for agents that aren't running at the same time — one agent finishes Tuesday, the next picks up the handoff Wednesday.
+
+## Status & limitations
+
+Tracecraft is **pre-alpha**. Honest sharp edges, as of now:
+
+- **No TTL on claims** — a crashed claim-holder keeps the lock until someone runs `complete --force`.
+- **Heartbeat isn't refreshed** — `agents` shows who registered, not who's alive right now.
+- **HF claims are best-effort** — HuggingFace Buckets have no conditional write, so atomic claims need an S3-compatible backend.
+
+Open issues and roadmap → [github.com/Arrmlet/tracecraft/issues](https://github.com/Arrmlet/tracecraft/issues)
+
+---
+
 ## Session mirroring
 
 Most coordination tools store the *events* — who claimed what, who messaged whom. Tracecraft stores those **and** each agent's full reasoning, by mirroring coding-agent session transcripts into the same bucket. When a run goes sideways, one `tracecraft session show` gives you the handoffs **and** the chain of thought behind them — same place, same JSON, no second system to wire up.
