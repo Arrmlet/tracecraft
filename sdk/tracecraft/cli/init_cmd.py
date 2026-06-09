@@ -101,6 +101,20 @@ def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, 
         else:
             visibility = "private" if actual_private else "PUBLIC"
         click.echo(f"Backend: HuggingFace Buckets  Bucket: {bucket} ({visibility})")
+        if actual_private is False and private:
+            # The bucket pre-existed as public; we asked for private but
+            # create_bucket(exist_ok=True) never changes an existing bucket.
+            click.echo(
+                "\n"
+                "  WARNING: bucket already exists and is PUBLIC.\n"
+                f"  Everything tracecraft writes to '{bucket}' — shared memory, messages,\n"
+                "  handoffs, and mirrored session transcripts — will be publicly visible\n"
+                "  on the Hub. huggingface_hub has no update_bucket, so visibility cannot\n"
+                "  be flipped in place: the only remedy is to delete the bucket and\n"
+                "  re-run init so tracecraft recreates it private.\n"
+                "  If public was intentional, pass --public to silence this warning.\n",
+                err=True,
+            )
         # Be honest about the core-promise gap on this backend (see hf.py put_json):
         # HF has no conditional-write, so atomic claims are best-effort there.
         click.echo(
