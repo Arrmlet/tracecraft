@@ -38,8 +38,8 @@ pivot lives in `plans/server-archive/` for reference only — nothing in the SDK
 <bucket>/<project>/
   agents/<agent_id>.json                ← agent registration + heartbeat
   memory/<dotted.key>.json              ← shared key-value state
-  messages/<recipient>/<ts>_<from>.json ← per-agent mailbox
-  messages/_broadcast/<ts>_<from>.json  ← broadcast
+  messages/<recipient>/<ts_ns>_<from>_<uuid8>.json ← per-agent mailbox
+  messages/_broadcast/<ts_ns>_<from>_<uuid8>.json  ← broadcast
   steps/<step_id>/claim.json            ← atomic claim (If-None-Match=*)
   steps/<step_id>/status.json           ← pending / in_progress / complete
   steps/<step_id>/handoff.json          ← note + from_agent for next agent
@@ -62,12 +62,11 @@ pivot lives in `plans/server-archive/` for reference only — nothing in the SDK
   the claim is the authoritative write (`step-status` and `wait-for` implement this via
   `_effective_status` in `cli/steps.py`).
 
-## Known gaps (May 2026)
+## Known gaps (June 2026)
 
-- No TTL on claims (a crashed claim-holder keeps the lock forever) — Tier 1 work.
+- No TTL on claims (a crashed claim-holder keeps the lock forever; `complete --force`
+  is the manual escape hatch) — Tier 1 work.
 - Heartbeat is written at `init` only, never refreshed — Tier 1 work.
-- Messages keyed by `<ts>_<sender>.json` can collide same-second — Tier 1 work.
-- No tests in `sdk/tests/` — Tier 1 work.
 
 ## Building
 
