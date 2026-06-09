@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
 [![Python](https://img.shields.io/pypi/pyversions/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://github.com/Arrmlet/tracecraft/actions/workflows/test.yml/badge.svg)](https://github.com/Arrmlet/tracecraft/actions/workflows/test.yml)
+[![CI](https://github.com/Arrmlet/tracecraft/actions/workflows/ci.yml/badge.svg)](https://github.com/Arrmlet/tracecraft/actions/workflows/ci.yml)
 
 **Tracecraft is a CLI coordination layer for multi-agent AI systems** — shared **memory**, a **mailbox**, atomic task **claims**, **handoffs**, and **artifacts**, plus mirrored **session transcripts**, all stored as plain JSON in any **S3** or **HuggingFace** bucket. No server. No database. No SDK lock-in.
 
