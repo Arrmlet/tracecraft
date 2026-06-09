@@ -227,6 +227,19 @@ TRACECRAFT_AGENT=developer tracecraft inbox
 
 ---
 
+## Python API
+
+The CLI is the stable interface; for code that wants direct bucket access, the store factory is the escape hatch:
+
+```python
+from tracecraft.store import get_store
+
+store, cfg = get_store()  # reads .tracecraft.json like the CLI does
+store.put_json("memory/build/status.json", {"value": "passing", "set_by": cfg["agent_id"]})
+```
+
+---
+
 ## More
 
 - [docs/session-mirror.md](docs/session-mirror.md) — session mirroring: harnesses, formats, redaction
