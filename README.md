@@ -29,19 +29,22 @@ docker run -d -p 9000:9000 \
   minio/minio server /data
 ```
 
-Register two agents against the same project:
+Register two agents against the same project. Credentials come from the standard AWS env vars, so they never land in your shell history:
 
 ```bash
+export AWS_ACCESS_KEY_ID=admin
+export AWS_SECRET_ACCESS_KEY=admin123456
+
 # Terminal 1
 tracecraft init --project demo --agent designer \
-  --endpoint http://localhost:9000 --bucket tracecraft \
-  --access-key admin --secret-key admin123456
+  --endpoint http://localhost:9000 --bucket tracecraft
 
 # Terminal 2 — same flags, --agent developer
 tracecraft init --project demo --agent developer \
-  --endpoint http://localhost:9000 --bucket tracecraft \
-  --access-key admin --secret-key admin123456
+  --endpoint http://localhost:9000 --bucket tracecraft
 ```
+
+`init` writes the config to `.tracecraft.json` with mode `600` and auto-adds it to `.gitignore` when you're in a git repo.
 
 Now the core move — **two agents cannot grab the same work**, with no lock service and no server to run:
 
