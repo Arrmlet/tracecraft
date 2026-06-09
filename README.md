@@ -153,6 +153,8 @@ Bring your own bucket — no vendor lock-in:
 | Backblaze B2 / Wasabi | S3-compatible endpoint | |
 | HuggingFace Buckets | `--backend hf --bucket user/name` | browsable on the Hub; `pip install tracecraft-ai[huggingface]` |
 
+**HuggingFace privacy:** `init` creates the bucket **private by default** (pass `--public` to opt out) and prints the bucket's *actual* visibility, read back from the Hub — e.g. `Backend: HuggingFace Buckets  Bucket: user/x (private)`. If the bucket already exists as public and you didn't ask for that, init warns loudly: coordination data and mirrored transcripts would be publicly visible. Visibility can't be flipped after creation (`huggingface_hub` has no `update_bucket`) — the only way to change it is delete + recreate.
+
 ---
 
 ## Use cases
