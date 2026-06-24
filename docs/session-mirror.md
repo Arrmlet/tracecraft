@@ -41,6 +41,7 @@ file plus a `REGISTRY` entry.
 ```bash
 tracecraft session mirror --harness <name> [--session-id ID] [--cwd PATH]
                           [--no-redact] [--min-bytes N]
+                          [--follow/-f] [--interval SECONDS]
 tracecraft session list [--harness NAME] [--limit N] [--sort-by recent|size]
 tracecraft session show <session-id> [--tail N]
 tracecraft session stop <session-id>
@@ -48,9 +49,9 @@ tracecraft session stop <session-id>
 
 ### mirror
 
-Single-shot. Reads everything new since the last run, redacts, uploads it as a
-new part, updates `meta.json`, and advances the cursor. Safe to run repeatedly
-(e.g. from a cron, a `SessionEnd` hook, or a `while sleep 5` loop).
+Single-shot by default. Reads everything new since the last run, redacts,
+uploads it as a new part, updates `meta.json`, and advances the cursor. Safe to
+run repeatedly (e.g. from a cron or a `SessionEnd` hook).
 
 ```bash
 # Auto-pick the most recent claude-code session for the current directory
@@ -65,6 +66,31 @@ tracecraft session mirror --harness hermes --session-id 20260529_120000_abc123
 
 If `--session-id` is omitted, the most recently active session is chosen
 (for Hermes, the session owning the highest message id).
+
+### mirror --follow
+
+Near-real-time mirroring. `--follow` (or `-f`) resolves the session once, then
+re-flushes every `--interval` seconds (default 5) until you press Ctrl-C — so a
+crash loses at most one interval of trace instead of the whole run.
+
+```bash
+# Keep this session mirrored live, flushing every 5s
+tracecraft session mirror --harness claude-code --follow
+
+# Tighter cadence for a long, important run
+tracecraft session mirror --harness claude-code -f --interval 2
+```
+
+`--follow` reuses the same incremental cursor and `--min-bytes` gate, so cycles
+with no new bytes upload nothing (they print `nothing new` and cost no PUT). On
+Ctrl-C it stops cleanly and stamps `ended_at` on the session's `meta.json`.
+
+It batches one upload per interval rather than streaming per event on purpose:
+on per-operation-priced backends (R2 Class A writes, S3 PUTs) a flush-per-event
+loop would multiply write cost without making the trace meaningfully fresher.
+For a fixed cadence outside the process (a cron every minute, say), the plain
+one-shot `mirror` is still the right tool — `--follow` is for an interactive run
+you want kept live while it's happening.
 
 ### list / show / stop
 

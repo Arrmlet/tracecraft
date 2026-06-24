@@ -1,7 +1,8 @@
 """`tracecraft session` — mirror, list, show, stop.
 
 Commands:
-    mirror   Pull new bytes from a harness session into the bucket (one-shot).
+    mirror   Pull new bytes from a harness session into the bucket. One-shot by
+             default; --follow loops on an interval for near-real-time mirroring.
     list     Browse sessions in the bucket.
     show     Inspect one session's meta + tail.
     stop     Clear local state for a session (placeholder; no daemon yet).
@@ -23,6 +24,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,18 +126,64 @@ def session():
     show_default=True,
     help="Skip upload if fewer than this many new bytes are available.",
 )
-def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
-    """Pull new bytes from a harness session into the bucket (one-shot).
+@click.option(
+    "--follow",
+    "-f",
+    is_flag=True,
+    help="Keep running, re-mirroring on an interval until interrupted (Ctrl-C).",
+)
+@click.option(
+    "--interval",
+    default=5.0,
+    type=float,
+    show_default=True,
+    help="Seconds between flushes in --follow mode.",
+)
+def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, interval):
+    """Pull new bytes from a harness session into the bucket.
 
-    Reads from the last known byte offset (or 0 on first run), applies regex
-    redaction unless --no-redact, uploads the chunk as a new part object, and
-    updates the session's meta.json. Idempotent and safe to re-run on a cron.
+    One-shot by default: reads from the last known cursor (or 0 on first run),
+    applies regex redaction unless --no-redact, uploads the chunk as a new part
+    object, and updates the session's meta.json. Idempotent and safe to re-run
+    on a cron.
+
+    With --follow it repeats on --interval seconds (near-real-time mirroring) so
+    a crash loses at most one interval of trace; Ctrl-C stops cleanly and marks
+    the session ended. Empty cycles cost no upload (gated by --min-bytes).
     """
     store, cfg = get_store()
     harness = get_harness(harness_name)
     cwd = Path(cwd_str).expanduser().resolve() if cwd_str else Path.cwd()
 
-    # 1. Find the session
+    if interval <= 0:
+        raise click.ClickException("--interval must be > 0")
+
+    # Resolve the session once up front so --follow tails a stable session id
+    # even if a newer session starts mid-run.
+    sess = _resolve_session(harness, harness_name, cwd, session_id)
+
+    if not follow:
+        _mirror_once(store, cfg, harness, harness_name, sess, no_redact, min_bytes)
+        return
+
+    # --follow: loop until SIGINT. We catch KeyboardInterrupt rather than
+    # installing a custom handler so it composes with the test harness and
+    # leaves global signal state untouched.
+    click.echo(
+        f"following {harness_name} session={sess.session_id} every {interval:g}s — Ctrl-C to stop"
+    )
+    try:
+        while True:
+            _mirror_once(store, cfg, harness, harness_name, sess, no_redact, min_bytes)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        click.echo("\nstopping…")
+        _mark_ended(store, harness_name, sess.session_id)
+        click.echo(f"marked session={sess.session_id} ended")
+
+
+def _resolve_session(harness, harness_name, cwd, session_id):
+    """Pick the session to mirror, or raise a clean CLI error."""
     if session_id:
         candidates = [s for s in harness.discover(cwd) if s.session_id == session_id]
         sess = candidates[0] if candidates else None
@@ -147,11 +195,27 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
             f"No {harness_name} session found"
             + (f" for id={session_id}" if session_id else f" in cwd={cwd}")
         )
+    return sess
 
+
+def _mark_ended(store, harness_name, session_id):
+    """Stamp ended_at on the session meta (best-effort; no-op if no meta yet)."""
+    meta_key = f"{_session_prefix(harness_name, session_id)}meta.json"
+    meta = store.get_json(meta_key) or {}
+    if meta and not meta.get("ended_at"):
+        meta["ended_at"] = _now_iso()
+        store.put_json(meta_key, meta)
+
+
+def _mirror_once(store, cfg, harness, harness_name, sess, no_redact, min_bytes):
+    """Flush one delta for `sess` into the bucket. Returns True if it uploaded.
+
+    Shared by the single-shot path and the --follow loop so both behave
+    identically. Cursor is an opaque per-harness position: a byte offset for
+    file-backed harnesses (claude-code, codex, openclaw), a rowid for SQLite
+    (hermes). This never assumes it equals a byte count.
+    """
     state = _load_state(sess.session_id)
-    # `cursor` is an opaque per-harness position: a byte offset for file-backed
-    # harnesses (claude-code, codex, openclaw), a rowid for SQLite (hermes).
-    # The mirror loop never assumes it equals a byte count.
     cursor = state.get("cursor", 0)
 
     # Cheap pre-check: is there plausibly anything new? size() is sampled, not
@@ -159,21 +223,21 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
     cur_size = harness.size(sess)
     if cur_size - cursor < min_bytes:
         click.echo(f"nothing new: session={sess.session_id} cursor={cursor:,} size={cur_size:,}")
-        return
+        return False
 
-    # 2. Read everything new since `cursor`, race-free: read_new returns the
-    # bytes AND the exact cursor we consumed up to. For SQLite the bytes are
+    # Read everything new since `cursor`, race-free: read_new returns the bytes
+    # AND the exact cursor we consumed up to. For SQLite the bytes are
     # synthesized JSONL of new rows; raw_len is byte length, not a cursor delta.
     chunk, next_cursor = harness.read_new(sess, cursor)
     raw_len = len(chunk)
 
-    # 3. Redact (default on)
+    # Redact (default on)
     if no_redact:
         out_bytes, counts = chunk, {}
     else:
         out_bytes, counts = redact(chunk)
 
-    # 4. Upload as next part
+    # Upload as next part
     seq = _next_seq_for(store, harness_name, sess.session_id)
     uniq = uuid.uuid4().hex[:8]
     part_key = f"{_session_prefix(harness_name, sess.session_id)}part-{seq:05d}-{uniq}.jsonl"
@@ -189,7 +253,7 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
         except OSError:
             pass
 
-    # 5. Update meta.json (cumulative)
+    # Update meta.json (cumulative)
     meta_key = f"{_session_prefix(harness_name, sess.session_id)}meta.json"
     existing = store.get_json(meta_key) or {}
     parts_log = existing.get("parts", [])
@@ -221,7 +285,7 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
     }
     store.put_json(meta_key, meta)
 
-    # 6. Persist local state. Advance the cursor to the position we read up to
+    # Persist local state. Advance the cursor to the position we read up to
     # (next_cursor), NOT cursor+raw_len — those differ for SQLite where the
     # cursor is a rowid and raw_len is synthesized-JSONL byte length.
     _save_state(
@@ -241,6 +305,7 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes):
         f"source={raw_len:,}B  upload={len(out_bytes):,}B  "
         f"redactions={counts or 'none'}"
     )
+    return True
 
 
 # ---------- list ----------

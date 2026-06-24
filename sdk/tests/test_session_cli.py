@@ -285,6 +285,71 @@ def test_session_stop_clears_state_and_marks_ended(cli_env):
     assert meta.get("ended_at") is not None
 
 
+def test_follow_loops_then_stops_cleanly_on_interrupt(cli_env, monkeypatch):
+    """--follow mirrors repeatedly, picking up appends, then Ctrl-C marks ended.
+
+    We replace time.sleep with a fake that lets the loop run a few iterations,
+    appending new bytes between them, then raises KeyboardInterrupt to simulate
+    Ctrl-C — so no real waiting happens and the clean-stop path is exercised.
+    """
+    runner, cwd, sess, sid = cli_env
+    sess.write_bytes(b'{"turn":1}\n')
+
+    calls = {"n": 0}
+
+    def fake_sleep(_seconds):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # between iteration 1 and 2, the agent writes more
+            with open(sess, "ab") as f:
+                f.write(b'{"turn":2}\n')
+        elif calls["n"] >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(session_mod.time, "sleep", fake_sleep)
+
+    r = runner.invoke(
+        cli,
+        ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd), "--follow"],
+    )
+    assert r.exit_code == 0, r.output
+    assert "following claude-code" in r.output
+    assert "stopping" in r.output
+    assert "ended" in r.output
+
+    # Two flushes => two disjoint parts (turn 1, then turn 2)
+    parts = sorted(k for k in _bucket_keys() if "/part-" in k)
+    assert len(parts) == 2
+    client = boto3.client("s3")
+    p1 = client.get_object(Bucket=BUCKET, Key=f"{PROJECT}/{parts[1]}")["Body"].read()
+    assert p1 == b'{"turn":2}\n'
+
+    # Clean stop stamped ended_at
+    meta = _get_meta(sid)
+    assert meta.get("ended_at") is not None
+
+
+def test_follow_rejects_nonpositive_interval(cli_env):
+    runner, cwd, sess, _sid = cli_env
+    sess.write_bytes(b'{"x":1}\n')
+    r = runner.invoke(
+        cli,
+        [
+            "session",
+            "mirror",
+            "--harness",
+            "claude-code",
+            "--cwd",
+            str(cwd),
+            "--follow",
+            "--interval",
+            "0",
+        ],
+    )
+    assert r.exit_code != 0
+    assert "--interval must be > 0" in r.output
+
+
 def test_mirror_unknown_session_id_errors_cleanly(cli_env):
     runner, cwd, _sess, _sid = cli_env
     r = runner.invoke(
