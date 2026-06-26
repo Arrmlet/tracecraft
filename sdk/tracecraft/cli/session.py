@@ -442,3 +442,115 @@ def stop(session_id):
     click.echo(
         f"stopped session={session_id}  state_cleared={had_state}  meta_marked_ended={marked}"
     )
+
+
+# ---------- compact ----------
+
+
+@session.command("compact")
+@click.argument("session_id")
+@click.option(
+    "--keep-tail",
+    default=0,
+    type=int,
+    show_default=True,
+    help="Leave the newest N parts untouched (e.g. while --follow is still running).",
+)
+def compact(session_id, keep_tail):
+    """Merge a session's many part files into a single consolidated part.
+
+    --follow writes one part per flush, so a long session accumulates many
+    small objects (cheap to write, but slower to list/replay and more store
+    operations). compact concatenates them — in seq order, byte-for-byte — into
+    one new part, then deletes the originals. `session show` output is identical
+    before and after.
+
+    Safe ordering: the merged part is uploaded and meta is rewritten BEFORE any
+    original is deleted, so a crash mid-compact can leave a harmless duplicate
+    but never a gap. Use --keep-tail N to leave the newest N parts alone if a
+    --follow loop is still appending to this session.
+    """
+    if keep_tail < 0:
+        raise click.ClickException("--keep-tail must be >= 0")
+
+    store, _ = get_store()
+    meta_keys = [k for k in store.list_keys("sessions/") if k.endswith(f"/{session_id}/meta.json")]
+    if not meta_keys:
+        raise click.ClickException(f"session not found: {session_id}")
+    meta_key = meta_keys[0]
+    prefix = meta_key[: -len("meta.json")]
+
+    part_keys = sorted(
+        k for k in store.list_keys(prefix) if PART_RE.search(k.rsplit("/", 1)[-1])
+    )
+    if keep_tail:
+        targets, kept = part_keys[:-keep_tail], part_keys[-keep_tail:]
+    else:
+        targets, kept = part_keys, []
+
+    if len(targets) < 2:
+        click.echo(
+            f"nothing to compact: {len(targets)} mergeable part(s) "
+            f"(kept newest {len(kept)})"
+        )
+        return
+
+    # 1. Download + concatenate the target parts in seq order.
+    body = bytearray()
+    for k in targets:
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tmp = tf.name
+        try:
+            store.get_file(k, tmp)
+            body.extend(Path(tmp).read_bytes())
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+    # 2. Upload the merged blob as a NEW part (seq below any kept part so order
+    #    is preserved on the next read). Use seq 0 — kept parts keep higher seqs.
+    uniq = uuid.uuid4().hex[:8]
+    merged_key = f"{prefix}part-{0:05d}-{uniq}.jsonl"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tf:
+        tf.write(bytes(body))
+        merged_tmp = tf.name
+    try:
+        store.put_file(merged_key, merged_tmp)
+    finally:
+        try:
+            os.unlink(merged_tmp)
+        except OSError:
+            pass
+
+    # 3. Rewrite meta to reflect the consolidated layout BEFORE deleting anything.
+    meta = store.get_json(meta_key) or {}
+    old_parts = meta.get("parts", [])
+    kept_seqs = {
+        int(PART_RE.search(k.rsplit("/", 1)[-1]).group(1)) for k in kept
+    }
+    surviving = [p for p in old_parts if p.get("seq") in kept_seqs]
+    merged_entry = {
+        "seq": 0,
+        "uuid": uniq,
+        "compacted_from": len(targets),
+        "uploaded_bytes": len(body),
+        "uploaded_at": _now_iso(),
+    }
+    meta["parts"] = [merged_entry] + sorted(surviving, key=lambda p: p.get("seq", 0))
+    meta["last_compacted_at"] = _now_iso()
+    store.put_json(meta_key, meta)
+
+    # 4. Now it's safe to delete the originals (merged copy already durable).
+    deleted = 0
+    for k in targets:
+        # strip the project prefix the store re-adds in _key()
+        rel = k
+        store.delete(rel)
+        deleted += 1
+
+    click.echo(
+        f"compacted session={session_id}  merged {len(targets)} parts -> 1 "
+        f"({len(body):,}B)  deleted={deleted}  kept_tail={len(kept)}"
+    )

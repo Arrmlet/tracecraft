@@ -285,6 +285,69 @@ def test_session_stop_clears_state_and_marks_ended(cli_env):
     assert meta.get("ended_at") is not None
 
 
+def test_compact_merges_parts_byte_identical(cli_env):
+    """compact merges N parts into 1, deletes originals, leaves replay unchanged."""
+    runner, cwd, sess, sid = cli_env
+    # Three separate flushes -> three parts.
+    sess.write_bytes(b'{"t":1}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    with open(sess, "ab") as f:
+        f.write(b'{"t":2}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    with open(sess, "ab") as f:
+        f.write(b'{"t":3}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+
+    parts_before = sorted(k for k in _bucket_keys() if "/part-" in k)
+    assert len(parts_before) == 3
+    # capture the full reassembled tail before compaction
+    show_before = runner.invoke(cli, ["session", "show", sid, "--tail", "10"])
+
+    r = runner.invoke(cli, ["session", "compact", sid])
+    assert r.exit_code == 0, r.output
+    assert "merged 3 parts -> 1" in r.output
+
+    parts_after = sorted(k for k in _bucket_keys() if "/part-" in k)
+    assert len(parts_after) == 1, f"expected one merged part, got {parts_after}"
+
+    # Replay is byte-identical: same three lines, same order.
+    show_after = runner.invoke(cli, ["session", "show", sid, "--tail", "10"])
+    tail_before = show_before.output.split("--- tail ---")[1]
+    tail_after = show_after.output.split("--- tail ---")[1]
+    assert tail_before == tail_after
+    assert '{"t":1}' in tail_after and '{"t":2}' in tail_after and '{"t":3}' in tail_after
+
+    meta = _get_meta(sid)
+    assert len(meta["parts"]) == 1
+    assert meta["parts"][0]["compacted_from"] == 3
+
+
+def test_compact_keep_tail_leaves_newest_untouched(cli_env):
+    """--keep-tail N leaves the newest N parts so a live --follow isn't disturbed."""
+    runner, cwd, sess, sid = cli_env
+    for i in range(3):
+        with open(sess, "ab") as f:
+            f.write(b'{"t":%d}\n' % i)
+        runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    assert len([k for k in _bucket_keys() if "/part-" in k]) == 3
+
+    r = runner.invoke(cli, ["session", "compact", sid, "--keep-tail", "1"])
+    assert r.exit_code == 0, r.output
+    # 2 merged into 1, plus the 1 kept = 2 parts total
+    assert len([k for k in _bucket_keys() if "/part-" in k]) == 2
+    assert "kept_tail=1" in r.output
+
+
+def test_compact_noop_when_single_part(cli_env):
+    runner, cwd, sess, sid = cli_env
+    sess.write_bytes(b'{"t":1}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    r = runner.invoke(cli, ["session", "compact", sid])
+    assert r.exit_code == 0, r.output
+    assert "nothing to compact" in r.output
+    assert len([k for k in _bucket_keys() if "/part-" in k]) == 1
+
+
 def test_follow_loops_then_stops_cleanly_on_interrupt(cli_env, monkeypatch):
     """--follow mirrors repeatedly, picking up appends, then Ctrl-C marks ended.
 
