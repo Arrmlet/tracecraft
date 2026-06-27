@@ -525,9 +525,7 @@ def compact(session_id, keep_tail):
     meta_key = meta_keys[0]
     prefix = meta_key[: -len("meta.json")]
 
-    part_keys = sorted(
-        k for k in store.list_keys(prefix) if PART_RE.search(k.rsplit("/", 1)[-1])
-    )
+    part_keys = sorted(k for k in store.list_keys(prefix) if PART_RE.search(k.rsplit("/", 1)[-1]))
     if keep_tail:
         targets, kept = part_keys[:-keep_tail], part_keys[-keep_tail:]
     else:
@@ -535,8 +533,7 @@ def compact(session_id, keep_tail):
 
     if len(targets) < 2:
         click.echo(
-            f"nothing to compact: {len(targets)} mergeable part(s) "
-            f"(kept newest {len(kept)})"
+            f"nothing to compact: {len(targets)} mergeable part(s) (kept newest {len(kept)})"
         )
         return
 
@@ -572,9 +569,7 @@ def compact(session_id, keep_tail):
     # 3. Rewrite meta to reflect the consolidated layout BEFORE deleting anything.
     meta = store.get_json(meta_key) or {}
     old_parts = meta.get("parts", [])
-    kept_seqs = {
-        int(PART_RE.search(k.rsplit("/", 1)[-1]).group(1)) for k in kept
-    }
+    kept_seqs = {int(PART_RE.search(k.rsplit("/", 1)[-1]).group(1)) for k in kept}
     surviving = [p for p in old_parts if p.get("seq") in kept_seqs]
     merged_entry = {
         "seq": 0,

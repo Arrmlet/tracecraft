@@ -330,8 +330,15 @@ def test_all_rejects_session_id(cli_env):
     r = runner.invoke(
         cli,
         [
-            "session", "mirror", "--harness", "claude-code", "--cwd", str(cwd),
-            "--all", "--session-id", sid,
+            "session",
+            "mirror",
+            "--harness",
+            "claude-code",
+            "--cwd",
+            str(cwd),
+            "--all",
+            "--session-id",
+            sid,
         ],
     )
     assert r.exit_code != 0
