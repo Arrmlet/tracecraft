@@ -10,7 +10,7 @@ so we can find the right project directory for the user's current cwd.
 
 from __future__ import annotations
 
-import os
+import re
 from pathlib import Path
 
 from .base import FileTailHarness, Session
@@ -19,11 +19,16 @@ from .base import FileTailHarness, Session
 def _encode_cwd(cwd: Path) -> str:
     """Encode an absolute path the way Claude Code does for its projects dir.
 
-    Claude Code uses the resolved absolute path with `/` swapped for `-`,
-    keeping the leading separator's effect (so `/foo/bar` -> `-foo-bar`).
+    Claude Code sanitizes the resolved absolute path into a safe directory name
+    by replacing the path separator AND other non-alphanumeric punctuation with
+    `-`. Critically that includes `_` and `.`, so `/Users/x/my_proj.v2` becomes
+    `-Users-x-my-proj-v2`. We mirror that here — replacing only `/` (the old
+    behavior) silently fails to find sessions for any cwd containing `_` or `.`.
     """
-    resolved = cwd.expanduser().resolve()
-    return str(resolved).replace(os.sep, "-")
+    resolved = str(cwd.expanduser().resolve())
+    # Replace every run of non-alphanumeric chars with a single hyphen, matching
+    # Claude Code's slugify. Leading separator becomes a leading hyphen.
+    return re.sub(r"[^A-Za-z0-9]+", "-", resolved)
 
 
 class ClaudeCodeHarness(FileTailHarness):

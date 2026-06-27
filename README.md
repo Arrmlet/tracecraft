@@ -124,14 +124,18 @@ Open issues and roadmap → [github.com/Arrmlet/tracecraft/issues](https://githu
 Most coordination tools store the *events* — who claimed what, who messaged whom. Tracecraft stores those **and** each agent's full reasoning, by mirroring coding-agent session transcripts into the same bucket. When a run goes sideways, one `tracecraft session show` gives you the handoffs **and** the chain of thought behind them — same place, same JSON, no second system to wire up.
 
 ```bash
-tracecraft session mirror --harness claude-code   # upload this session's new bytes
+tracecraft session mirror --harness claude-code   # upload this session's new bytes (one-shot)
+tracecraft session mirror --harness claude-code -f # --follow: keep mirroring until Ctrl-C
+tracecraft session mirror --harness claude-code --all  # follow EVERY session in this folder
 tracecraft session list                           # browse mirrored sessions
 tracecraft session show <id> --tail 50            # replay: meta + last N transcript lines
+tracecraft session compact <id>                   # merge a session's many parts into one
 tracecraft session stop <id>                      # clear local cursor, mark session ended
 ```
 
 - **Four harnesses** — `claude-code`, `codex`, `openclaw`, `hermes`. Anything else can mirror by writing JSONL to the same layout.
 - **Incremental cursor uploads** — `mirror` keeps a per-session byte offset and uploads only what's new as numbered parts, so re-running it from a cron or hook is safe and cheap; a run with nothing new is a no-op. The part sequence is derived from the bucket, so it even survives losing the local state file.
+- **Near-real-time `--follow`** — `mirror --follow` (or `-f`) re-flushes every `--interval` seconds (default 5) until you Ctrl-C, so a crash loses at most one interval of trace. It reuses the same incremental cursor, so empty cycles cost no upload; Ctrl-C stops cleanly and marks the session ended. (One flush per interval keeps request costs flat — it batches, it doesn't stream per event.)
 - **Redaction on by default** — AWS / Anthropic / OpenAI / HF / GitHub / Slack token shapes are scrubbed before upload, with per-pattern match counts recorded in the session's `meta.json` (pass `--no-redact` to opt out). Source transcripts are never modified.
 - **Replay** — `session show <id> --tail N` concatenates the uploaded parts and prints the last N transcript lines next to the session metadata.
 

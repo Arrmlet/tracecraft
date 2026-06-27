@@ -285,6 +285,194 @@ def test_session_stop_clears_state_and_marks_ended(cli_env):
     assert meta.get("ended_at") is not None
 
 
+def test_follow_all_mirrors_multiple_and_picks_up_new_session(cli_env, monkeypatch):
+    """--all follows every session in the folder and picks up one that appears mid-run."""
+    runner, cwd, sess, sid = cli_env
+    pdir = sess.parent
+    # session A already exists
+    sess.write_bytes(b'{"sid":"A","t":1}\n')
+
+    calls = {"n": 0}
+
+    def fake_sleep(_seconds):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # after the first cycle, a SECOND claude-code session appears in the folder
+            (pdir / "sess-bbb99999.jsonl").write_bytes(b'{"sid":"B","t":1}\n')
+        elif calls["n"] >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(session_mod.time, "sleep", fake_sleep)
+
+    r = runner.invoke(
+        cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd), "--all"]
+    )
+    assert r.exit_code == 0, r.output
+    assert "following ALL claude-code sessions" in r.output
+    # both sessions got announced as followed
+    assert "session=sess-abc12345" in r.output
+    assert "session=sess-bbb99999" in r.output
+
+    # Both sessions exist as separate folders in the bucket
+    keys = _bucket_keys()
+    a_parts = [k for k in keys if "sess-abc12345/part-" in k]
+    b_parts = [k for k in keys if "sess-bbb99999/part-" in k]
+    assert a_parts, "session A should have been mirrored"
+    assert b_parts, "session B (appeared mid-run) should have been mirrored"
+    # ended_at stamped on both at clean stop
+    assert _get_meta("sess-abc12345").get("ended_at") is not None
+    assert _get_meta("sess-bbb99999").get("ended_at") is not None
+
+
+def test_all_rejects_session_id(cli_env):
+    runner, cwd, sess, sid = cli_env
+    sess.write_bytes(b'{"x":1}\n')
+    r = runner.invoke(
+        cli,
+        [
+            "session",
+            "mirror",
+            "--harness",
+            "claude-code",
+            "--cwd",
+            str(cwd),
+            "--all",
+            "--session-id",
+            sid,
+        ],
+    )
+    assert r.exit_code != 0
+    assert "drop --session-id" in r.output
+
+
+def test_compact_merges_parts_byte_identical(cli_env):
+    """compact merges N parts into 1, deletes originals, leaves replay unchanged."""
+    runner, cwd, sess, sid = cli_env
+    # Three separate flushes -> three parts.
+    sess.write_bytes(b'{"t":1}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    with open(sess, "ab") as f:
+        f.write(b'{"t":2}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    with open(sess, "ab") as f:
+        f.write(b'{"t":3}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+
+    parts_before = sorted(k for k in _bucket_keys() if "/part-" in k)
+    assert len(parts_before) == 3
+    # capture the full reassembled tail before compaction
+    show_before = runner.invoke(cli, ["session", "show", sid, "--tail", "10"])
+
+    r = runner.invoke(cli, ["session", "compact", sid])
+    assert r.exit_code == 0, r.output
+    assert "merged 3 parts -> 1" in r.output
+
+    parts_after = sorted(k for k in _bucket_keys() if "/part-" in k)
+    assert len(parts_after) == 1, f"expected one merged part, got {parts_after}"
+
+    # Replay is byte-identical: same three lines, same order.
+    show_after = runner.invoke(cli, ["session", "show", sid, "--tail", "10"])
+    tail_before = show_before.output.split("--- tail ---")[1]
+    tail_after = show_after.output.split("--- tail ---")[1]
+    assert tail_before == tail_after
+    assert '{"t":1}' in tail_after and '{"t":2}' in tail_after and '{"t":3}' in tail_after
+
+    meta = _get_meta(sid)
+    assert len(meta["parts"]) == 1
+    assert meta["parts"][0]["compacted_from"] == 3
+
+
+def test_compact_keep_tail_leaves_newest_untouched(cli_env):
+    """--keep-tail N leaves the newest N parts so a live --follow isn't disturbed."""
+    runner, cwd, sess, sid = cli_env
+    for i in range(3):
+        with open(sess, "ab") as f:
+            f.write(b'{"t":%d}\n' % i)
+        runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    assert len([k for k in _bucket_keys() if "/part-" in k]) == 3
+
+    r = runner.invoke(cli, ["session", "compact", sid, "--keep-tail", "1"])
+    assert r.exit_code == 0, r.output
+    # 2 merged into 1, plus the 1 kept = 2 parts total
+    assert len([k for k in _bucket_keys() if "/part-" in k]) == 2
+    assert "kept_tail=1" in r.output
+
+
+def test_compact_noop_when_single_part(cli_env):
+    runner, cwd, sess, sid = cli_env
+    sess.write_bytes(b'{"t":1}\n')
+    runner.invoke(cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd)])
+    r = runner.invoke(cli, ["session", "compact", sid])
+    assert r.exit_code == 0, r.output
+    assert "nothing to compact" in r.output
+    assert len([k for k in _bucket_keys() if "/part-" in k]) == 1
+
+
+def test_follow_loops_then_stops_cleanly_on_interrupt(cli_env, monkeypatch):
+    """--follow mirrors repeatedly, picking up appends, then Ctrl-C marks ended.
+
+    We replace time.sleep with a fake that lets the loop run a few iterations,
+    appending new bytes between them, then raises KeyboardInterrupt to simulate
+    Ctrl-C — so no real waiting happens and the clean-stop path is exercised.
+    """
+    runner, cwd, sess, sid = cli_env
+    sess.write_bytes(b'{"turn":1}\n')
+
+    calls = {"n": 0}
+
+    def fake_sleep(_seconds):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # between iteration 1 and 2, the agent writes more
+            with open(sess, "ab") as f:
+                f.write(b'{"turn":2}\n')
+        elif calls["n"] >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(session_mod.time, "sleep", fake_sleep)
+
+    r = runner.invoke(
+        cli,
+        ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd), "--follow"],
+    )
+    assert r.exit_code == 0, r.output
+    assert "following claude-code" in r.output
+    assert "stopping" in r.output
+    assert "ended" in r.output
+
+    # Two flushes => two disjoint parts (turn 1, then turn 2)
+    parts = sorted(k for k in _bucket_keys() if "/part-" in k)
+    assert len(parts) == 2
+    client = boto3.client("s3")
+    p1 = client.get_object(Bucket=BUCKET, Key=f"{PROJECT}/{parts[1]}")["Body"].read()
+    assert p1 == b'{"turn":2}\n'
+
+    # Clean stop stamped ended_at
+    meta = _get_meta(sid)
+    assert meta.get("ended_at") is not None
+
+
+def test_follow_rejects_nonpositive_interval(cli_env):
+    runner, cwd, sess, _sid = cli_env
+    sess.write_bytes(b'{"x":1}\n')
+    r = runner.invoke(
+        cli,
+        [
+            "session",
+            "mirror",
+            "--harness",
+            "claude-code",
+            "--cwd",
+            str(cwd),
+            "--follow",
+            "--interval",
+            "0",
+        ],
+    )
+    assert r.exit_code != 0
+    assert "--interval must be > 0" in r.output
+
+
 def test_mirror_unknown_session_id_errors_cleanly(cli_env):
     runner, cwd, _sess, _sid = cli_env
     r = runner.invoke(

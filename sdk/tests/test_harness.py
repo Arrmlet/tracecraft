@@ -14,6 +14,7 @@ Run from repo root:
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -82,11 +83,23 @@ def test_read_new_returns_bytes_and_advanced_cursor():
 
 
 def test_claude_code_encode_cwd_matches_dotclaude_scheme(tmp_path):
-    # Claude Code encodes absolute paths by replacing separators with hyphens.
+    # Claude Code slugifies absolute paths: every run of non-alphanumeric chars
+    # (separators, underscores, dots, etc.) collapses to a single hyphen.
     encoded = _encode_cwd(tmp_path)
-    expected = str(tmp_path.resolve()).replace(os.sep, "-")
+    expected = re.sub(r"[^A-Za-z0-9]+", "-", str(tmp_path.resolve()))
     assert encoded == expected
     assert encoded.startswith("-")  # leading separator becomes leading hyphen
+
+
+def test_claude_code_encode_cwd_handles_underscores_and_dots():
+    # Regression: paths with `_` or `.` must match Claude Code's real dir names.
+    # The old encoder only swapped `/`, so it silently failed to find sessions
+    # for any folder like `test_session_flow` or `my.proj` (encoded to a name
+    # that never matched the on-disk `-...-test-session-flow`).
+    assert _encode_cwd(Path("/Users/x/test_session_flow")) == "-Users-x-test-session-flow"
+    assert _encode_cwd(Path("/Users/x/my.proj.v2")) == "-Users-x-my-proj-v2"
+    # plain hyphenated names are unchanged
+    assert _encode_cwd(Path("/Users/x/data-universe")) == "-Users-x-data-universe"
 
 
 def test_claude_code_discover_empty_when_no_project_dir(tmp_path):
