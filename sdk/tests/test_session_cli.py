@@ -285,6 +285,59 @@ def test_session_stop_clears_state_and_marks_ended(cli_env):
     assert meta.get("ended_at") is not None
 
 
+def test_follow_all_mirrors_multiple_and_picks_up_new_session(cli_env, monkeypatch):
+    """--all follows every session in the folder and picks up one that appears mid-run."""
+    runner, cwd, sess, sid = cli_env
+    pdir = sess.parent
+    # session A already exists
+    sess.write_bytes(b'{"sid":"A","t":1}\n')
+
+    calls = {"n": 0}
+
+    def fake_sleep(_seconds):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # after the first cycle, a SECOND claude-code session appears in the folder
+            (pdir / "sess-bbb99999.jsonl").write_bytes(b'{"sid":"B","t":1}\n')
+        elif calls["n"] >= 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(session_mod.time, "sleep", fake_sleep)
+
+    r = runner.invoke(
+        cli, ["session", "mirror", "--harness", "claude-code", "--cwd", str(cwd), "--all"]
+    )
+    assert r.exit_code == 0, r.output
+    assert "following ALL claude-code sessions" in r.output
+    # both sessions got announced as followed
+    assert "session=sess-abc12345" in r.output
+    assert "session=sess-bbb99999" in r.output
+
+    # Both sessions exist as separate folders in the bucket
+    keys = _bucket_keys()
+    a_parts = [k for k in keys if "sess-abc12345/part-" in k]
+    b_parts = [k for k in keys if "sess-bbb99999/part-" in k]
+    assert a_parts, "session A should have been mirrored"
+    assert b_parts, "session B (appeared mid-run) should have been mirrored"
+    # ended_at stamped on both at clean stop
+    assert _get_meta("sess-abc12345").get("ended_at") is not None
+    assert _get_meta("sess-bbb99999").get("ended_at") is not None
+
+
+def test_all_rejects_session_id(cli_env):
+    runner, cwd, sess, sid = cli_env
+    sess.write_bytes(b'{"x":1}\n')
+    r = runner.invoke(
+        cli,
+        [
+            "session", "mirror", "--harness", "claude-code", "--cwd", str(cwd),
+            "--all", "--session-id", sid,
+        ],
+    )
+    assert r.exit_code != 0
+    assert "drop --session-id" in r.output
+
+
 def test_compact_merges_parts_byte_identical(cli_env):
     """compact merges N parts into 1, deletes originals, leaves replay unchanged."""
     runner, cwd, sess, sid = cli_env

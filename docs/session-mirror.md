@@ -41,10 +41,11 @@ file plus a `REGISTRY` entry.
 ```bash
 tracecraft session mirror --harness <name> [--session-id ID] [--cwd PATH]
                           [--no-redact] [--min-bytes N]
-                          [--follow/-f] [--interval SECONDS]
+                          [--follow/-f] [--interval SECONDS] [--all]
 tracecraft session list [--harness NAME] [--limit N] [--sort-by recent|size]
 tracecraft session show <session-id> [--tail N]
 tracecraft session stop <session-id>
+tracecraft session compact <session-id> [--keep-tail N]
 ```
 
 ### mirror
@@ -91,6 +92,44 @@ loop would multiply write cost without making the trace meaningfully fresher.
 For a fixed cadence outside the process (a cron every minute, say), the plain
 one-shot `mirror` is still the right tool — `--follow` is for an interactive run
 you want kept live while it's happening.
+
+### mirror --all
+
+Follow **every** session under `--cwd`, not just the active one — including
+sessions that start *after* the loop begins. This is the "one terminal mirrors
+the whole project" mode: open several agents in the same folder and they all get
+mirrored, each into its own `sessions/<harness>/<id>/` folder in the bucket.
+
+```bash
+# one terminal, mirrors every claude-code session in this project as they appear
+tracecraft session mirror --harness claude-code --all
+```
+
+`--all` implies `--follow` and ignores `--session-id` (it mirrors all of them).
+Each session keeps an independent cursor, so flushing one never disturbs another;
+new sessions are announced with `+ now following session=<id>` as they appear.
+On Ctrl-C it marks every followed session ended.
+
+Note: `--all` is scoped to one cwd and one harness. Sessions in other folders, or
+from a different harness (e.g. Codex), need their own `--all` invocation — or use
+the SessionStart hook, which auto-pins each session regardless of folder/harness.
+
+### compact
+
+Over a long `--follow` run a session accumulates many small part files (one per
+flush). They're cheap to write and reassemble transparently on read, but you can
+consolidate them:
+
+```bash
+tracecraft session compact <session-id>              # merge all parts into one
+tracecraft session compact <session-id> --keep-tail 1 # leave the newest part (live --follow)
+```
+
+compact concatenates the parts in seq order, byte-for-byte, into a single new
+part and deletes the originals — `session show` output is identical before and
+after. It uploads the merged part and rewrites `meta.json` **before** deleting
+anything, so an interrupted compact leaves a harmless duplicate, never a gap.
+Use `--keep-tail N` to avoid racing a `--follow` loop that's still appending.
 
 ### list / show / stop
 

@@ -139,7 +139,14 @@ def session():
     show_default=True,
     help="Seconds between flushes in --follow mode.",
 )
-def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, interval):
+@click.option(
+    "--all",
+    "all_sessions",
+    is_flag=True,
+    help="Mirror EVERY session for --cwd, not just the active one. Picks up "
+    "new sessions that appear while following. Implies --follow.",
+)
+def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, interval, all_sessions):
     """Pull new bytes from a harness session into the bucket.
 
     One-shot by default: reads from the last known cursor (or 0 on first run),
@@ -150,6 +157,11 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, inte
     With --follow it repeats on --interval seconds (near-real-time mirroring) so
     a crash loses at most one interval of trace; Ctrl-C stops cleanly and marks
     the session ended. Empty cycles cost no upload (gated by --min-bytes).
+
+    With --all it follows EVERY session under --cwd at once — including new ones
+    that start while it runs — each with its own independent cursor. This is the
+    one-terminal-watches-the-whole-project mode: open several agents in the same
+    folder and they all mirror. (--all implies --follow and ignores --session-id.)
     """
     store, cfg = get_store()
     harness = get_harness(harness_name)
@@ -157,6 +169,12 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, inte
 
     if interval <= 0:
         raise click.ClickException("--interval must be > 0")
+
+    if all_sessions:
+        if session_id:
+            raise click.ClickException("--all mirrors every session; drop --session-id")
+        _follow_all(store, cfg, harness, harness_name, cwd, no_redact, min_bytes, interval)
+        return
 
     # Resolve the session once up front so --follow tails a stable session id
     # even if a newer session starts mid-run.
@@ -180,6 +198,33 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, inte
         click.echo("\nstopping…")
         _mark_ended(store, harness_name, sess.session_id)
         click.echo(f"marked session={sess.session_id} ended")
+
+
+def _follow_all(store, cfg, harness, harness_name, cwd, no_redact, min_bytes, interval):
+    """Follow every session under `cwd`, re-discovering each cycle so sessions
+    that start mid-run get picked up. Each session keeps its own cursor via the
+    per-session state files, so flushing one never disturbs another.
+    """
+    click.echo(
+        f"following ALL {harness_name} sessions in {cwd} every {interval:g}s — Ctrl-C to stop"
+    )
+    seen: set[str] = set()
+    try:
+        while True:
+            sessions = harness.discover(cwd)
+            for sess in sessions:
+                if sess.session_id not in seen:
+                    seen.add(sess.session_id)
+                    click.echo(f"+ now following session={sess.session_id}")
+                _mirror_once(store, cfg, harness, harness_name, sess, no_redact, min_bytes)
+            if not sessions:
+                click.echo(f"nothing to follow yet in {cwd} (waiting for a session)")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        click.echo("\nstopping…")
+        for sid in seen:
+            _mark_ended(store, harness_name, sid)
+        click.echo(f"marked {len(seen)} session(s) ended")
 
 
 def _resolve_session(harness, harness_name, cwd, session_id):

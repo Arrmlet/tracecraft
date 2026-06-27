@@ -126,8 +126,10 @@ Most coordination tools store the *events* — who claimed what, who messaged wh
 ```bash
 tracecraft session mirror --harness claude-code   # upload this session's new bytes (one-shot)
 tracecraft session mirror --harness claude-code -f # --follow: keep mirroring until Ctrl-C
+tracecraft session mirror --harness claude-code --all  # follow EVERY session in this folder
 tracecraft session list                           # browse mirrored sessions
 tracecraft session show <id> --tail 50            # replay: meta + last N transcript lines
+tracecraft session compact <id>                   # merge a session's many parts into one
 tracecraft session stop <id>                      # clear local cursor, mark session ended
 ```
 
