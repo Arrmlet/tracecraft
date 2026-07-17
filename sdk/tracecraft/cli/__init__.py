@@ -24,23 +24,27 @@ BANNER = """
 @click.version_option(version=__version__)
 @click.pass_context
 def cli(ctx):
-    """Coordination layer for multi-agent AI systems."""
+    """Never lose an AI coding session — mirror it to a bucket you own."""
     if ctx.invoked_subcommand is None:
         click.echo(BANNER)
-        click.echo("  \033[36mCoordination layer for multi-agent AI systems.\033[0m")
+        click.echo(
+            "  \033[36mNever lose an AI coding session — mirror it to a bucket you own.\033[0m"
+        )
         click.echo()
         click.echo("  \033[1mCommands:\033[0m")
-        click.echo("    init           Configure S3 backend + project + agent")
+        click.echo("    init           Configure S3/HF backend + project + agent")
+        click.echo(
+            "    session        Mirror coding-agent sessions (mirror -f/list/show/compact/stop)"
+        )
         click.echo("    memory         Shared key-value state (set/get/list)")
         click.echo("    agents         Who's online?")
         click.echo("    send           Message an agent (or _broadcast for all)")
         click.echo("    inbox          Check your messages")
-        click.echo("    claim          Claim a task step")
+        click.echo("    claim          Claim a task step (atomic)")
         click.echo("    complete       Mark step done + handoff note")
         click.echo("    step-status    Check step progress")
         click.echo("    wait-for       Block until steps complete")
         click.echo("    artifact       Share files (upload/download/list)")
-        click.echo("    session        Mirror coding-agent traces (mirror/list/show/stop)")
         click.echo()
         click.echo("  \033[2mRun 'tracecraft <command> --help' for details.\033[0m")
         click.echo()
