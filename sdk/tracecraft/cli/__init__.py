@@ -24,11 +24,11 @@ BANNER = """
 @click.version_option(version=__version__)
 @click.pass_context
 def cli(ctx):
-    """Never lose an AI coding session — mirror it to a bucket you own."""
+    """The black box for AI agents — record sessions, referee claims, in your bucket."""
     if ctx.invoked_subcommand is None:
         click.echo(BANNER)
         click.echo(
-            "  \033[36mNever lose an AI coding session — mirror it to a bucket you own.\033[0m"
+            "  \033[36mThe black box for AI agents — record, replay, referee. In your bucket.\033[0m"
         )
         click.echo()
         click.echo("  \033[1mCommands:\033[0m")

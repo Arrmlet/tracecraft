@@ -5,17 +5,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/Arrmlet/tracecraft/actions/workflows/ci.yml/badge.svg)](https://github.com/Arrmlet/tracecraft/actions/workflows/ci.yml)
 
-**Never lose an AI coding session — mirror it live to a bucket you own.**
+**The black box for AI agents — records everything your agents do, and referees what they do next.**
 
-Your coding agent stores sessions as local JSONL files — and, in Claude Code's case, deletes them after 30 days by default. A crash, a context compaction, or a laptop swap, and the reasoning behind your codebase is gone. `tracecraft session mirror -f` streams the transcript to any **S3-compatible** or **HuggingFace** bucket as you work: private by default, redacted by default, replayable from anywhere.
+Every coding session, every task claim, every handoff lands as plain JSON in a bucket **you** own — any S3-compatible or HuggingFace bucket. Replay any run from any machine, months later. Audit any incident. No server. No database. No SDK lock-in.
 
-Because everything is plain JSON in a bucket, the same CLI doubles as a **serverless coordination layer** when you run more than one agent: shared memory, mailboxes, atomic task claims, handoffs, and artifacts. No server. No database. No SDK lock-in.
+- **Record** — your coding agent stores sessions as local JSONL and, in Claude Code's case, deletes them after 30 days by default. `tracecraft session mirror -f` streams the transcript to your bucket live: private by default, redacted by default, immune to purges, crashes, and laptop swaps.
+- **Referee** — run a fleet and two agents can never grab the same work: task claims are decided atomically by S3 `If-None-Match` conditional writes — **1,200/1,200 contested races, exactly one winner** ([benchmarks](benchmarks/)) — plus shared memory, mailboxes, handoffs, and artifacts through the same bucket.
 
-**Who is this for:** anyone running Claude Code / Codex / OpenClaw / Hermes who wants sessions that outlive the laptop they ran on — and, when you get there, fleets of agents that need to coordinate without new infrastructure.
+<p align="center">
+  <img width="100%" alt="Two agents race for the same task; the second is atomically rejected — no server" src="docs/assets/tracecraft-claim-race.gif">
+</p>
+
+**Who is this for:** anyone running Claude Code / Codex / OpenClaw / Hermes who wants an indelible record of what their agents did — and fleets of agents that need coordination without new infrastructure.
 
 ---
 
-## Back up your sessions in 60 seconds
+## Record: your sessions, backed up in 60 seconds
 
 Fastest path is a HuggingFace bucket (any S3 endpoint works too — see [Backends](#backends)):
 
@@ -47,13 +52,9 @@ Harness matrix, storage formats, and redaction details → **[docs/session-mirro
 
 ---
 
-## What mirroring unlocks: multi-agent coordination
+## Referee: coordination for agent fleets
 
-Once your agents' state lives in a bucket, the bucket can *be* the coordinator. Two agents cannot grab the same work — enforced by an S3 `If-None-Match` conditional write, with no lock service and no server:
-
-<p align="center">
-  <img width="100%" alt="Two agents race for the same task; the second is atomically rejected — no server" src="docs/assets/tracecraft-claim-race.gif">
-</p>
+The bucket that holds the record is the bucket that coordinates the fleet. Two agents cannot grab the same work — enforced by an S3 `If-None-Match` conditional write, with no lock service and no server:
 
 ```bash
 # Local dev: any S3 endpoint works; MinIO in Docker is the quickest sandbox
