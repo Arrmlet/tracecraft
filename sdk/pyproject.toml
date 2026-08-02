@@ -33,7 +33,9 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
-    "ruff>=0.4.0",
+    # Pinned minor: unpinned ruff broke CI twice when new releases added rules
+    # (0.15.20 -> 0.16.1). Bump deliberately, fixing new violations in the same PR.
+    "ruff==0.15.*",
     "mypy>=1.0.0",
     "moto[s3]>=5.0",
 ]
