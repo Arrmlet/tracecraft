@@ -25,7 +25,11 @@ jobs:
           python-version: "3.12"
 
       - name: Sync root README into sdk/ before build
-        run: cp README.md sdk/README.md
+        # Relative image/doc links don't resolve on PyPI — rewrite them to absolute URLs.
+        run: |
+          cp README.md sdk/README.md
+          sed -i -E 's|src="docs/|src="https://raw.githubusercontent.com/Arrmlet/tracecraft/main/docs/|g' sdk/README.md
+          sed -i -E 's&\]\((docs/|benchmarks/|plans/)&](https://github.com/Arrmlet/tracecraft/blob/main/\1&g' sdk/README.md
 
       - name: Build sdist + wheel
         working-directory: sdk

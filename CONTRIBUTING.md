@@ -40,7 +40,6 @@ Commit format: `tracecraft: [step-id] description`
 
 ```bash
 cd sdk && pytest tests/ -v
-cd server && pytest tests/ -v
 ```
 
 ## Code style
