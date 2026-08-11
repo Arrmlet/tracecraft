@@ -87,7 +87,25 @@ class S3:
         try:
             self.client.head_object(Bucket=self.bucket, Key=self._key(key))
             return True
-        except ClientError:
+        except ClientError as e:
+            # "Not found" is a legitimate False; "access denied" is not —
+            # swallowing it makes bad credentials look like an empty bucket.
+            # (head_object reports errors by HTTP status, often without a
+            # descriptive Code, so check both.)
+            code = e.response.get("Error", {}).get("Code", "")
+            status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if status in (401, 403) or code in (
+                "401",
+                "403",
+                "AccessDenied",
+                "InvalidAccessKeyId",
+                "SignatureDoesNotMatch",
+            ):
+                raise click.ClickException(
+                    f"S3 auth error while checking '{key}': {e}\n"
+                    "Check your credentials (access key / secret key) and bucket "
+                    "permissions — this is a permissions failure, not a missing object."
+                )
             return False
 
     def delete(self, key):

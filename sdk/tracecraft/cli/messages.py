@@ -42,7 +42,12 @@ def send(recipient, message):
 
 
 @click.command()
-@click.option("--delete", is_flag=True, help="Delete messages after reading")
+@click.option(
+    "--delete",
+    is_flag=True,
+    help="Delete direct messages after reading. Broadcasts are never deleted — "
+    "other agents still need to read them.",
+)
 def inbox(delete):
     """Read messages in your inbox and broadcasts."""
     store, cfg = get_store()
@@ -70,16 +75,21 @@ def inbox(delete):
         messages.append((key, data))
     messages.sort(key=lambda kd: kd[1].get("sent_at", ""))
 
+    deleted = 0
     for key, data in messages:
         sender = data.get("from", "?")
         msg = data.get("message", "")
         sent_at = data.get("sent_at", "?")
         target = "broadcast" if "_broadcast/" in key else "direct"
         click.echo(f"[{sent_at}] ({target}) {sender}: {msg}")
-        if delete:
+        # Broadcasts are shared: the first reader deleting them would destroy
+        # them for every other agent. Only the recipient's own direct messages
+        # are safe to delete.
+        if delete and "_broadcast/" not in key:
             store.delete(key)
+            deleted += 1
 
     if not messages:
         click.echo("No messages.")
     elif delete:
-        click.echo(f"Deleted {len(messages)} message(s).")
+        click.echo(f"Deleted {deleted} direct message(s); broadcasts left in place.")

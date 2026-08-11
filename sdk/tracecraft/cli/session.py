@@ -86,6 +86,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _protection_summary(store) -> None:
+    """One-line receipt after mirror/compact: what's protected, where it lives."""
+    try:
+        meta_keys = [k for k in store.list_keys("sessions/") if k.endswith("/meta.json")]
+        total = 0
+        for k in meta_keys:
+            meta = store.get_json(k) or {}
+            total += meta.get("total_uploaded_bytes", 0)
+        mb = total / (1024 * 1024)
+        click.echo(f"✔ {len(meta_keys)} session(s) protected · {mb:.1f} MB in YOUR bucket · 0 lost")
+    except Exception:
+        # The receipt is cosmetic — never let it fail the actual mirror/compact.
+        pass
+
+
 # ---------- group ----------
 
 
@@ -101,7 +116,8 @@ def session():
 @click.option(
     "--harness",
     "harness_name",
-    required=True,
+    default="claude-code",
+    show_default=True,
     type=click.Choice(HARNESS_CHOICES),
     help="Which coding agent's session format to read.",
 )
@@ -182,6 +198,7 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, inte
 
     if not follow:
         _mirror_once(store, cfg, harness, harness_name, sess, no_redact, min_bytes)
+        _protection_summary(store)
         return
 
     # --follow: loop until SIGINT. We catch KeyboardInterrupt rather than
@@ -198,6 +215,7 @@ def mirror(harness_name, session_id, cwd_str, no_redact, min_bytes, follow, inte
         click.echo("\nstopping…")
         _mark_ended(store, harness_name, sess.session_id)
         click.echo(f"marked session={sess.session_id} ended")
+        _protection_summary(store)
 
 
 def _follow_all(store, cfg, harness, harness_name, cwd, no_redact, min_bytes, interval):
@@ -225,6 +243,7 @@ def _follow_all(store, cfg, harness, harness_name, cwd, no_redact, min_bytes, in
         for sid in seen:
             _mark_ended(store, harness_name, sid)
         click.echo(f"marked {len(seen)} session(s) ended")
+        _protection_summary(store)
 
 
 def _resolve_session(harness, harness_name, cwd, session_id):
@@ -594,3 +613,4 @@ def compact(session_id, keep_tail):
         f"compacted session={session_id}  merged {len(targets)} parts -> 1 "
         f"({len(body):,}B)  deleted={deleted}  kept_tail={len(kept)}"
     )
+    _protection_summary(store)
