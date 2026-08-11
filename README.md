@@ -30,9 +30,11 @@ Fastest path is a HuggingFace bucket (any S3 endpoint works too — see [Backend
 pip install 'tracecraft-ai[huggingface]'    # or: uvx --from 'tracecraft-ai[huggingface]' tracecraft
 export HF_TOKEN=hf_...                      # write token from huggingface.co/settings/tokens
 
-tracecraft init --backend hf --bucket <you>/agent-sessions --project sessions --agent me
-tracecraft session mirror --harness claude-code -f   # -f = follow: mirror live until Ctrl-C
+tracecraft init --backend hf --bucket <you>/agent-sessions
+tracecraft session mirror -f       # -f = follow: mirror live until Ctrl-C
 ```
+
+That's the whole setup — `init` defaults the project to your directory name and the agent id to your username, and `mirror` defaults to the `claude-code` harness (`--harness codex|openclaw|hermes` for the others).
 
 `init` creates the bucket **private by default** and prints the *actual* visibility read back from the Hub. From then on, every new byte of your session lands in your bucket within seconds — and stays there:
 
@@ -187,7 +189,7 @@ Bring your own bucket — no vendor lock-in:
 ```bash
 tracecraft init                           # Configure backend + project + agent
 
-tracecraft session mirror --harness <name>       # Mirror a session into the bucket (add -f to follow)
+tracecraft session mirror                        # Mirror a session into the bucket (add -f to follow; --harness defaults to claude-code)
 tracecraft session list                          # Browse mirrored sessions
 tracecraft session show <id> [--tail N]          # Inspect meta + transcript tail
 tracecraft session compact <id>                  # Merge parts into one
