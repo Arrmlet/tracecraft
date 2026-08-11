@@ -4,12 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracecraft-ai"
-version = "0.2.3"
-description = "Coordination layer for multi-agent AI systems. Bring your own S3 / HuggingFace bucket; shared memory, mailbox, atomic task claims, handoffs, artifacts — no server, no database."
+version = "0.2.4"
+description = "The black box for AI agents — record coding-agent sessions and referee multi-agent coordination (atomic claims, mailboxes, shared memory, handoffs) in your own S3 / HuggingFace bucket. No server, no database."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
-keywords = ["agents", "multi-agent", "experiment-tracking", "coordination", "observability"]
+keywords = [
+    "agents",
+    "multi-agent",
+    "coordination",
+    "claude-code",
+    "session-backup",
+    "agent-memory",
+    "observability",
+    "s3",
+    "huggingface",
+]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",

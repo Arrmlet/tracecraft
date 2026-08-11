@@ -1,5 +1,6 @@
 """tracecraft init — configure and register agent."""
 
+import getpass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,8 +22,16 @@ from tracecraft.config import save_config
     required=True,
     help="Bucket name (s3) or HF bucket handle e.g. username/my-bucket (hf)",
 )
-@click.option("--project", required=True, help="Project namespace")
-@click.option("--agent", required=True, help="Agent ID for this session")
+@click.option(
+    "--project",
+    default=None,
+    help="Project namespace [default: current directory name]",
+)
+@click.option(
+    "--agent",
+    default=None,
+    help="Agent ID for this session [default: your OS username]",
+)
 @click.option(
     "--access-key",
     default=None,
@@ -47,6 +56,12 @@ from tracecraft.config import save_config
 )
 def init_cmd(backend, endpoint, bucket, project, agent, access_key, secret_key, hf_token, private):
     """Initialize tracecraft config, create bucket, and register agent."""
+    if not project:
+        project = Path.cwd().name
+        click.echo(f"Using project '{project}' (current directory; override with --project)")
+    if not agent:
+        agent = getpass.getuser()
+        click.echo(f"Using agent id '{agent}' (your username; override with --agent)")
     cfg = {
         "backend": backend,
         "bucket": bucket,
