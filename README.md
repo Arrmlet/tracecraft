@@ -1,3 +1,5 @@
+
+
 # tracecraft
 
 [![PyPI](https://img.shields.io/pypi/v/tracecraft-ai)](https://pypi.org/project/tracecraft-ai/)
@@ -25,7 +27,7 @@ Every coding session, every task claim, every handoff lands as plain JSON in a b
 Fastest path is a HuggingFace bucket (any S3 endpoint works too — see [Backends](#backends)):
 
 ```bash
-pip install 'tracecraft-ai[huggingface]'    # or: uvx --from tracecraft-ai tracecraft
+pip install 'tracecraft-ai[huggingface]'    # or: uvx --from 'tracecraft-ai[huggingface]' tracecraft
 export HF_TOKEN=hf_...                      # write token from huggingface.co/settings/tokens
 
 tracecraft init --backend hf --bucket <you>/agent-sessions --project sessions --agent me
