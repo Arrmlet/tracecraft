@@ -10,6 +10,7 @@ from tracecraft.cli.messages import send, inbox
 from tracecraft.cli.steps import claim, complete, step_status, wait_for
 from tracecraft.cli.artifacts import artifact
 from tracecraft.cli.session import session as session_group
+from tracecraft.cli.status import status
 
 BANNER = """
 \033[36m  _                                  __ _
@@ -36,10 +37,11 @@ def cli(ctx):
         click.echo(
             "    session        Mirror coding-agent sessions (mirror -f/list/show/compact/stop)"
         )
-        click.echo("    memory         Shared key-value state (set/get/list)")
+        click.echo("    status         One-screen view: agents, steps, mail, sessions")
+        click.echo("    memory         Shared key-value state (set/get/list/history)")
         click.echo("    agents         Who's online?")
         click.echo("    send           Message an agent (or _broadcast for all)")
-        click.echo("    inbox          Check your messages")
+        click.echo("    inbox          Check your messages (--new = only since last read)")
         click.echo("    claim          Claim a task step (atomic)")
         click.echo("    complete       Mark step done + handoff note")
         click.echo("    step-status    Check step progress")
@@ -61,6 +63,7 @@ cli.add_command(step_status, "step-status")
 cli.add_command(wait_for, "wait-for")
 cli.add_command(artifact)
 cli.add_command(session_group)
+cli.add_command(status)
 
 
 def main():

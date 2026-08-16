@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracecraft-ai"
-version = "0.2.4"
+version = "0.2.5"
 description = "The black box for AI agents — record coding-agent sessions and referee multi-agent coordination (atomic claims, mailboxes, shared memory, handoffs) in your own S3 / HuggingFace bucket. No server, no database."
 readme = "README.md"
 license = {text = "MIT"}

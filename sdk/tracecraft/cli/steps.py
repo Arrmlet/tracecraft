@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import click
 
+from tracecraft.protocol import effective_status, normalize_step_id
 from tracecraft.s3 import PreconditionFailed
 from tracecraft.store import get_store
 
@@ -39,7 +40,7 @@ def claim(step_id):
     """Claim a step for this agent (atomic via If-None-Match)."""
     store, cfg = get_store()
     agent = cfg["agent_id"]
-    sid = step_id.lower().replace(".", "-")
+    sid = normalize_step_id(step_id)
 
     now = datetime.now(timezone.utc).isoformat()
     try:
@@ -108,7 +109,7 @@ def complete(
 
     store, cfg = get_store()
     agent = cfg["agent_id"]
-    sid = step_id.lower().replace(".", "-")
+    sid = normalize_step_id(step_id)
     now = datetime.now(timezone.utc).isoformat()
 
     # A step belongs to whoever claimed it — without this check any agent
@@ -160,21 +161,9 @@ def complete(
     click.echo(msg)
 
 
-def _effective_status(store, sid):
-    """Resolve a step's status, tolerating the claim/status crash window.
-
-    claim.json (atomic) and status.json are two separate writes; a crash
-    between them leaves a claim with no status. Readers treat that state as
-    in_progress by the claiming agent — the claim is the authoritative write.
-    Returns (status, agent); status is 'pending' when neither file exists.
-    """
-    data = store.get_json(f"steps/{sid}/status.json")
-    if data is not None:
-        return data.get("status", "unknown"), data.get("agent", "?")
-    claim_doc = store.get_json(f"steps/{sid}/claim.json")
-    if claim_doc is not None:
-        return "in_progress", claim_doc.get("agent", "?")
-    return "pending", None
+# The crash-window-tolerant resolution lives in protocol.effective_status
+# (shared with `tracecraft status`); the old private name stays importable.
+_effective_status = effective_status
 
 
 @click.command()
@@ -182,7 +171,7 @@ def _effective_status(store, sid):
 def step_status(step_id):
     """Check the status of a step."""
     store, _ = get_store()
-    sid = step_id.lower().replace(".", "-")
+    sid = normalize_step_id(step_id)
     status, agent = _effective_status(store, sid)
     if agent is None:
         click.echo(f"{step_id}: {status}")
@@ -202,7 +191,7 @@ def wait_for(step_ids, timeout):
         all_done = True
         needs_review = []
         for step_id in step_ids:
-            sid = step_id.lower().replace(".", "-")
+            sid = normalize_step_id(step_id)
             status, agent = _effective_status(store, sid)
             if status == "blocked":
                 # A blocked step won't complete on its own — failing fast beats
