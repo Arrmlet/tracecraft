@@ -195,16 +195,19 @@ tracecraft session show <id> [--tail N]          # Inspect meta + transcript tai
 tracecraft session compact <id>                  # Merge parts into one
 tracecraft session stop <id>                     # Clear local state, mark ended
 
+tracecraft status [--json] [--watch]      # One-screen view: agents, steps, mailboxes, sessions
 tracecraft agents                         # Who's online?
 
-tracecraft memory set <key> <value>       # Write (dots become path separators)
-tracecraft memory get <key>               # Read
+tracecraft memory set <key> <value>       # Write (dots become path separators; every set is versioned)
+tracecraft memory get <key> [--with-meta] # Read (--with-meta adds set_by/set_at)
+tracecraft memory history <key>           # Version trail of a key, oldest first
 tracecraft memory list [prefix]           # List keys
 
-tracecraft send <agent-id> <message>      # Direct message
+tracecraft send <agent-id> <message> [--step id]  # Direct message (--step threads it to a step)
 tracecraft send _broadcast <message>      # Broadcast to all
-tracecraft inbox                          # Read messages
-tracecraft inbox --delete                 # Read and clear
+tracecraft inbox                          # Read all messages
+tracecraft inbox --new                    # Only messages since your last read (advances your cursor)
+tracecraft inbox --delete                 # [deprecated — prefer --new] read and clear direct messages
 
 tracecraft claim <step-id>                # Claim a step (atomic)
 tracecraft complete <step-id> [--note X] [--to AGENT] [--next-action X]

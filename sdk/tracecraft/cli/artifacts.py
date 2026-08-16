@@ -4,6 +4,7 @@ import os
 
 import click
 
+from tracecraft.protocol import normalize_step_id
 from tracecraft.store import get_store
 
 
@@ -21,7 +22,7 @@ def artifact_upload(path, step):
     store, _ = get_store()
     filename = os.path.basename(path)
     if step:
-        sid = step.lower().replace(".", "-")
+        sid = normalize_step_id(step)
         key = f"artifacts/{sid}/{filename}"
     else:
         key = f"artifacts/shared/{filename}"
@@ -38,7 +39,7 @@ def artifact_download(name, step, output):
     """Download an artifact by name."""
     store, _ = get_store()
     if step:
-        sid = step.lower().replace(".", "-")
+        sid = normalize_step_id(step)
         key = f"artifacts/{sid}/{name}"
     else:
         key = f"artifacts/shared/{name}"
@@ -56,7 +57,7 @@ def artifact_list(step):
     """List artifacts, optionally filtered by step."""
     store, _ = get_store()
     if step:
-        sid = step.lower().replace(".", "-")
+        sid = normalize_step_id(step)
         prefix = f"artifacts/{sid}/"
     else:
         prefix = "artifacts/"

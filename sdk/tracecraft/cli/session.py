@@ -32,6 +32,7 @@ from pathlib import Path
 import click
 
 from tracecraft.harness import REGISTRY, get_harness
+from tracecraft.protocol import session_totals
 from tracecraft.redact import merge_counts, redact
 from tracecraft.store import get_store
 
@@ -89,13 +90,11 @@ def _now_iso() -> str:
 def _protection_summary(store) -> None:
     """One-line receipt after mirror/compact: what's protected, where it lives."""
     try:
-        meta_keys = [k for k in store.list_keys("sessions/") if k.endswith("/meta.json")]
-        total = 0
-        for k in meta_keys:
-            meta = store.get_json(k) or {}
-            total += meta.get("total_uploaded_bytes", 0)
-        mb = total / (1024 * 1024)
-        click.echo(f"✔ {len(meta_keys)} session(s) protected · {mb:.1f} MB in YOUR bucket · 0 lost")
+        totals = session_totals(store)
+        mb = totals["total_uploaded_bytes"] / (1024 * 1024)
+        click.echo(
+            f"✔ {totals['count']} session(s) protected · {mb:.1f} MB in YOUR bucket · 0 lost"
+        )
     except Exception:
         # The receipt is cosmetic — never let it fail the actual mirror/compact.
         pass

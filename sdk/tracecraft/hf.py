@@ -1,6 +1,7 @@
 """HuggingFace Buckets backend — same interface as s3.py, uses HfFileSystem."""
 
 import json
+from datetime import datetime, timezone
 
 import click
 
@@ -79,19 +80,58 @@ class HF:
         except Exception as e:
             raise click.ClickException(f"HF get failed: {e}")
 
-    def list_keys(self, prefix=""):
+    @staticmethod
+    def _entry_detail(info):
+        """Normalize an HfFileSystem info dict to (size, last_modified).
+
+        Bucket-backed paths report timestamps as 'mtime'/'uploaded_at';
+        repo-backed paths use 'last_commit' (dict or object with .date), and
+        it's only populated when the filesystem expands info. Tolerate all of
+        them, plus datetime / epoch-number / string values.
+        """
+        size = info.get("size") or 0
+        lc = info.get("last_commit")
+        date = getattr(lc, "date", None)
+        if date is None and isinstance(lc, dict):
+            date = lc.get("date")
+        if date is None:
+            for field in ("last_modified", "mtime", "uploaded_at"):
+                if info.get(field) is not None:
+                    date = info[field]
+                    break
+        if hasattr(date, "isoformat"):
+            return size, date.isoformat()
+        if isinstance(date, (int, float)):
+            return size, datetime.fromtimestamp(date, tz=timezone.utc).isoformat()
+        return size, date
+
+    def list_keys(self, prefix="", detail=False, start_after=None):
+        """Same contract as S3.list_keys. HfFileSystem has no server-side
+        StartAfter, so start_after is filtered client-side (correct, just not
+        cheaper than a full list). Results are sorted to match S3's ordering.
+        A missing prefix lists as empty via the FileNotFoundError handler —
+        no separate exists() round-trip.
+        """
         try:
             path = self._path(prefix)
-            # find() is recursive and matches S3 list semantics
-            entries = self.fs.find(path, detail=False) if self.fs.exists(path) else []
             base_prefix = f"buckets/{self.bucket}/{self.project}/"
-            keys = []
-            for entry in entries:
-                if entry.startswith(base_prefix):
-                    keys.append(entry[len(base_prefix) :])
+
+            def strip(entry):
+                return entry[len(base_prefix) :] if entry.startswith(base_prefix) else entry
+
+            # find() is recursive and matches S3 list semantics
+            infos = self.fs.find(path, detail=True) if detail else self.fs.find(path, detail=False)
+            results = []
+            for entry_path in sorted(infos):
+                key = strip(entry_path)
+                if start_after and key <= start_after:
+                    continue
+                if detail:
+                    size, last_modified = self._entry_detail(infos[entry_path])
+                    results.append({"key": key, "size": size, "last_modified": last_modified})
                 else:
-                    keys.append(entry)
-            return keys
+                    results.append(key)
+            return results
         except FileNotFoundError:
             return []
         except Exception as e:

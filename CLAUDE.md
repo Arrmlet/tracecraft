@@ -15,13 +15,18 @@ handoffs, and artifacts — all stored as JSON files in any S3-compatible bucket
 ## Architecture (what actually ships)
 
 ```
-sdk/tracecraft/          Python SDK + CLI (~530 LoC)
+sdk/tracecraft/          Python SDK + CLI (~2,500 LoC)
+  protocol.py            shared bucket-protocol helpers: append-key format,
+                         reserved names, read cursors, step-state resolution,
+                         agent staleness — CLI modules import from here, never
+                         from each other
   cli/                   click-based CLI commands
     init_cmd.py          init: configure + register agent
     agents.py            agents: list active agents
-    memory.py            memory set/get/list
-    messages.py          send/inbox
+    memory.py            memory set/get/list/history (every set appends to memory/_history/)
+    messages.py          send/inbox (--new reads from the per-agent cursor; --delete deprecated)
     steps.py             claim/complete/step-status/wait-for
+    status.py            status: read-only one-screen cockpit (--json/--watch)
     artifacts.py         artifact upload/download/list
   s3.py                  boto3 wrapper (project-scoped keys, atomic put via If-None-Match)
   hf.py                  HuggingFace Buckets backend (same interface)
@@ -37,8 +42,10 @@ pivot lives in `plans/server-archive/` for reference only — nothing in the SDK
 ```
 <bucket>/<project>/
   agents/<agent_id>.json                ← agent registration + heartbeat
-  memory/<dotted.key>.json              ← shared key-value state
+  memory/<dotted.key>.json              ← shared key-value state (live value, last-write-wins)
+  memory/_history/<key>/<ts_ns>_<agent>_<uuid8>.json ← immutable version snapshots
   messages/<recipient>/<ts_ns>_<from>_<uuid8>.json ← per-agent mailbox
+  messages/<recipient>/_cursor.json     ← that agent's read position (inbox --new)
   messages/_broadcast/<ts_ns>_<from>_<uuid8>.json  ← broadcast
   steps/<step_id>/claim.json            ← atomic claim (If-None-Match=*)
   steps/<step_id>/status.json           ← pending / in_progress / complete

@@ -70,16 +70,36 @@ class S3:
                 return None
             raise click.ClickException(f"S3 get failed: {e}")
 
-    def list_keys(self, prefix=""):
+    def list_keys(self, prefix="", detail=False, start_after=None):
+        """List keys under prefix, in lexicographic order (S3 native order).
+
+        detail=True returns dicts {key, size, last_modified} instead of strings.
+        start_after skips everything <= that key server-side (ListObjectsV2
+        StartAfter) — the cheap primitive behind incremental reads like
+        `inbox --new`. Both take project-relative keys.
+        """
         try:
             full_prefix = self._key(prefix)
-            keys = []
+            kwargs = {"Bucket": self.bucket, "Prefix": full_prefix}
+            if start_after:
+                kwargs["StartAfter"] = self._key(start_after)
+            results = []
             paginator = self.client.get_paginator("list_objects_v2")
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=full_prefix):
+            for page in paginator.paginate(**kwargs):
                 for obj in page.get("Contents", []):
                     stripped = obj["Key"][len(self.project) + 1 :]
-                    keys.append(stripped)
-            return keys
+                    if detail:
+                        lm = obj.get("LastModified")
+                        results.append(
+                            {
+                                "key": stripped,
+                                "size": obj.get("Size", 0),
+                                "last_modified": lm.isoformat() if lm else None,
+                            }
+                        )
+                    else:
+                        results.append(stripped)
+            return results
         except ClientError as e:
             raise click.ClickException(f"S3 list failed: {e}")
 
